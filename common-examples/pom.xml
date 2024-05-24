@@ -11,25 +11,13 @@
 
     <modules>
         <module>send-and-receive-example</module>
+        <module>rocketmq4-basic-example</module>
     </modules>
 
     <artifactId>common-examples</artifactId>
     <packaging>pom</packaging>
 
     <dependencies>
-        <dependency>
-            <groupId>org.apache.rocketmq</groupId>
-            <artifactId>rocketmq-client-java</artifactId>
-        </dependency>
 
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-        </dependency>
     </dependencies>
 </project>

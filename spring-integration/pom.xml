@@ -13,6 +13,8 @@
     <packaging>pom</packaging>
     <modules>
         <module>spring-boot-rocketmq-acl</module>
+        <module>spring-boot-rocketmq5-producer</module>
+        <module>spring-boot-rocketmq5-consumer</module>
     </modules>
 
 </project>
