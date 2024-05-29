@@ -2,7 +2,12 @@ package com.mawen.learn.rocketmq4.spring.controller;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
+import com.google.common.collect.Iterators;
 import com.mawen.learn.rocketmq4.spring.entity.AssetDocument;
 import com.mawen.learn.rocketmq4.spring.enums.PublishState;
 import com.mawen.learn.rocketmq4.spring.event.GenerateEvent;
@@ -13,6 +18,7 @@ import org.jeasy.random.EasyRandom;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -42,16 +48,15 @@ public class GenerateController {
 		// regenerate
 		EasyRandom random = new EasyRandom();
 
-		List<AssetDocument> list = new ArrayList<>(count);
-		for (int i = 0; i < count; i++) {
+		Stream<AssetDocument> stream = IntStream.range(0, count).mapToObj(i -> {
 			AssetDocument doc = random.nextObject(AssetDocument.class);
 			doc.setId(null);
 			doc.setTopicCode(TOPIC);
 			doc.setPublishState(PublishState.PROCESSING);
-			list.add(doc);
-		}
+			return doc;
+		});
 
-		assetRepository.saveAll(list);
+		Iterators.partition(stream.iterator(), 10000).forEachRemaining(assetRepository::saveAll);
 
 		applicationContext.publishEvent(new GenerateEvent());
 

@@ -17,6 +17,7 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -81,7 +82,7 @@ public class AssetController {
 			}
 
 			if (total != 0 && total % 10 == 0) {
-				int esCount = assetRepository.countByPublishState(PublishState.PUBLISHED);
+				long esCount = assetHistoryRepository.count();
 				if (esCount == expectedCount) {
 					return "OK";
 				}
@@ -117,6 +118,28 @@ public class AssetController {
 			assetHistoryRepository.saveAll(historyDocumentList);
 		});
 
+		return "Ok";
+	}
+
+	@PostMapping("/message/batch/{count}")
+	public String sendBatchMessage(@PathVariable("count") int count) {
+		log.info("Send batch message start....");
+
+		redisTemplate.delete(REDIS_COUNT_KEY);
+
+		Stream<AssetDocument> stream = assetRepository.streamByPublishState(PublishState.PROCESSING);
+		Iterators.partition(stream.iterator(), count).forEachRemaining(its -> {
+			List<String> ids = its.stream().map(AssetDocument::getId).collect(Collectors.toList());
+			rocketMQTemplate.syncSend("asset-b", MessageBuilder.withPayload(ids).build());
+		});
+
+		log.info("Send batch message end...");
+
+		check();
+
+		redisTemplate.delete(REDIS_COUNT_KEY);
+
+		log.info("Check batch message finished...");
 		return "Ok";
 	}
 }
