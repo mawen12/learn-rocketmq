@@ -34,6 +34,7 @@ import java.util.function.Predicate;
 import com.mawen.learn.rocketmq.common.annotation.ImportantField;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.help.FAQUrl;
+import com.mawen.learn.rocketmq.common.utils.IOTinyUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
@@ -186,7 +187,7 @@ public class MixAll {
 		return 0L;
 	}
 
-	public static synchronized void string2File(final String str, final String fileName) {
+	public static synchronized void string2File(final String str, final String fileName) throws IOException {
 		String bakFileName = fileName + ".bak";
 		String prevContent = file2String(fileName);
 		if (prevContent != null) {
@@ -196,7 +197,7 @@ public class MixAll {
 		string2FileNotSafe(str, fileName);
 	}
 
-	public static void string2FileNotSafe(final String str, final String fileName) {
+	public static void string2FileNotSafe(final String str, final String fileName) throws IOException {
 		File file = new File(fileName);
 		File parentFile = file.getParentFile();
 		if (parentFile != null) {
@@ -205,7 +206,7 @@ public class MixAll {
 		IOTinyUtils.writeStringToFile(file, str, DEFAULT_CHARSET);
 	}
 
-	public static String file2String(final String fileName) {
+	public static String file2String(final String fileName) throws IOException {
 		File file = new File(fileName);
 		return file2String(file);
 	}
@@ -452,7 +453,7 @@ public class MixAll {
 		}
 	}
 
-	public static String getLocalhostByNetworkInterface() {
+	public static String getLocalhostByNetworkInterface() throws SocketException {
 		List<String> candidatesHost = new ArrayList<>();
 		Enumeration<NetworkInterface> enumeration = NetworkInterface.getNetworkInterfaces();
 
@@ -528,8 +529,18 @@ public class MixAll {
 	public static boolean isSysConsumerGroupForNoColdReadLimit(String consumerGroup) {
 		if (DEFAULT_CONSUMER_GROUP.equals(consumerGroup)
 		    || TOOLS_CONSUMER_GROUP.equals(consumerGroup)
-		||) {
-
+		    || SCHEDULE_CONSUMER_GROUP.equals(consumerGroup)
+		    || FILTERSRV_CONSUMER_GROUP.equals(consumerGroup)
+		    || MONITOR_CONSUMER_GROUP.equals(consumerGroup)
+		    || SELF_TEST_CONSUMER_GROUP.contains(consumerGroup)
+		    || ONS_HTTP_PROXY_GROUP.equals(consumerGroup)
+		    || CID_ONSAPI_PREMISSION_GROUP.equals(consumerGroup)
+		    || CID_ONSAPI_OWNER_GROUP.equals(consumerGroup)
+		    || CID_ONSAPI_PULL_GROUP.equals(consumerGroup)
+		    || CID_SYS_RMQ_TRANS.equals(consumerGroup)
+		    || consumerGroup.endsWith(CID_RMQ_SYS_PREFIX)) {
+			return true;
 		}
+		return false;
 	}
 }
