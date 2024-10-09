@@ -5,9 +5,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
-import jdk.internal.joptsimple.internal.Strings;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 

@@ -48,5 +48,5 @@ public abstract class AbstractRocksDBStorage {
 	private volatile boolean closed;
 
 	private final Semaphore reloadPermit = new Semaphore(1);
-	private final ScheduledExecutorService reloadScheduler = ThreadUtils.new
+//	private final ScheduledExecutorService reloadScheduler = ThreadUtils.new
 }
