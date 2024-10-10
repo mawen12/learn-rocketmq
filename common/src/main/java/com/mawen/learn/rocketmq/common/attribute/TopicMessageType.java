@@ -1,7 +1,9 @@
 package com.mawen.learn.rocketmq.common.attribute;
 
 import java.util.Map;
+import java.util.Set;
 
+import com.google.common.collect.Sets;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 
 /**
@@ -21,6 +23,10 @@ public enum TopicMessageType {
 
 	TopicMessageType(String value) {
 		this.value = value;
+	}
+
+	public static Set<String> topicMessageTypeSet() {
+		return Sets.newHashSet(UNSPECIFIED.value, NORMAL.value, FIFO.value, DELAY.value, TRANSACTION.value, MIXED.value);
 	}
 
 	public static TopicMessageType parseFromMessageProperty(Map<String, String> messageProperty) {

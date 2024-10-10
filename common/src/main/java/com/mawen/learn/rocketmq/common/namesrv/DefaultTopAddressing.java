@@ -12,6 +12,7 @@ import com.mawen.learn.rocketmq.common.MixAll;
 import com.mawen.learn.rocketmq.common.UtilAll;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.help.FAQUrl;
+import com.mawen.learn.rocketmq.common.utils.HttpTinyClient;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
