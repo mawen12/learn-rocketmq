@@ -1,19 +1,36 @@
 package com.mawen.learn.rocketmq.common.config;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.lang3.ThreadUtils;
+import com.google.common.collect.Maps;
+import com.mawen.learn.rocketmq.common.ThreadFactoryImpl;
+import com.mawen.learn.rocketmq.common.utils.DataConverter;
+import com.mawen.learn.rocketmq.common.utils.ThreadUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.CompactRangeOptions;
 import org.rocksdb.CompactionOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.FlushOptions;
+import org.rocksdb.LiveFileMetaData;
+import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.Statistics;
+import org.rocksdb.Status;
+import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
 /**
@@ -25,7 +42,6 @@ public abstract class AbstractRocksDBStorage {
 	protected static final Logger log = LoggerFactory.getLogger(AbstractRocksDBStorage.class);
 
 	private static final String SPACE = " | ";
-
 
 	protected String dbPath;
 	protected boolean readOnly;
@@ -39,14 +55,461 @@ public abstract class AbstractRocksDBStorage {
 	protected ReadOptions totalOrderReadOptions;
 
 	protected CompactionOptions compactionOptions;
-	protected CompactionOptions compactRangeOptions;
+	protected CompactRangeOptions compactRangeOptions;
 
-	protected ColumnFamilyHandle defaultCGHandle;
+	protected ColumnFamilyHandle defaultCFHandle;
 	protected final List<ColumnFamilyOptions> cfOptions = new ArrayList<>();
 
 	protected volatile boolean loaded;
 	private volatile boolean closed;
 
 	private final Semaphore reloadPermit = new Semaphore(1);
-//	private final ScheduledExecutorService reloadScheduler = ThreadUtils.new
+	private final ScheduledExecutorService reloadScheduler = ThreadUtils.newScheduledThreadPool(1, new ThreadFactoryImpl("RocksDBStorageReloadService_"));
+	private final ThreadPoolExecutor manualCompactionThread = (ThreadPoolExecutor) ThreadUtils.newThreadPoolExecutor(
+			1, 1, 60 * 1000, TimeUnit.MILLISECONDS,
+			new ArrayBlockingQueue<>(1),
+			new ThreadFactoryImpl("RocksDBManualCompactionService_"),
+			new ThreadPoolExecutor.DiscardOldestPolicy());
+
+	static {
+		RocksDB.loadLibrary();
+	}
+
+	public void statRocksdb(Logger logger) {
+		try {
+			List<LiveFileMetaData> liveFileMetaDataList = this.getCompactionStatus();
+			if (liveFileMetaDataList == null || liveFileMetaDataList.isEmpty()) {
+				return;
+			}
+
+			Map<Integer, StringBuilder> map = Maps.newHashMap();
+			for (LiveFileMetaData metaData : liveFileMetaDataList) {
+				StringBuilder sb = map.computeIfAbsent(metaData.level(), key -> new StringBuilder(256));
+				sb.append(new String(metaData.columnFamilyName(), DataConverter.CHARSET_UTF8)).append(SPACE)
+						.append(metaData.fileName()).append(SPACE)
+						.append("s: ").append(metaData.size()).append(SPACE)
+						.append("a: ").append(metaData.numEntries()).append(SPACE)
+						.append("r: ").append(metaData.numReadsSampled()).append(SPACE)
+						.append("d: ").append(metaData.numDeletions()).append(SPACE)
+						.append(metaData.beingCompacted()).append("\n");
+			}
+
+			for (Map.Entry<Integer, StringBuilder> entry : map.entrySet()) {
+				logger.info("level: {}\n{}", entry.getKey(), entry.getValue().toString());
+			}
+
+			String blockCacheMemUsage = this.db.getProperty("rocksdb.block-cache-usage");
+			String indexesAndFilterBlockMemUsage = this.db.getProperty("rocksdb.estimate-table-readers-mem");
+			String memTableMemUsage = this.db.getProperty("rocksdb.cur-size-all-mem-tables");
+			String blocksPinnedByIteratorMemUsage = this.db.getProperty("rocksdb.block-cache-pinned-usage");
+			log.info("MemUsage. blockCache: {}, indexAndFilterBlock: {}, memTable: {}, blocksPinnedByIterator: {}",
+					blockCacheMemUsage, indexesAndFilterBlockMemUsage, memTableMemUsage, blocksPinnedByIteratorMemUsage);
+		}
+		catch (Exception ignored) {
+		}
+	}
+
+	public boolean hold() {
+		if (!this.loaded || this.db == null || this.closed) {
+			log.error("hold rocksDB Failed. {}", this.dbPath);
+			return false;
+		}
+		return true;
+	}
+
+	public void release() {}
+
+	protected void manualCompaction(long minPhyOffset, final CompactRangeOptions compactRangeOptions) {
+		this.manualCompactionThread.submit(() -> {
+			manualCompactionDefaultCfRange(compactRangeOptions);
+		});
+	}
+
+	protected void manualCompactionDefaultCfRange(CompactRangeOptions compactRangeOptions) {
+		if (!hold()) {
+			return;
+		}
+
+		long s1 = System.currentTimeMillis();
+		boolean result = true;
+		try {
+			log.info("manualCompaction Start. {}", this.dbPath);
+			this.db.compactRange(this.defaultCFHandle, null, null, compactRangeOptions);
+		}
+		catch (RocksDBException e) {
+			result = false;
+			scheduleReloadRocksdb(e);
+			log.error("manualCompaction Failed. {}, {}", this.dbPath, getStatusError(e));
+		}
+		finally {
+			release();
+			log.info("manualCompaction End. {}, rt: {}(ms), result: {}", this.dbPath, System.currentTimeMillis() - s1, result);
+		}
+	}
+
+	protected void put(ColumnFamilyHandle cfHandle, WriteOptions writeOptions,
+			final byte[] keyBytes, final int keyLen,
+			final byte[] valueBytes, final int valueLen) throws RocksDBException {
+		assertHold();
+
+		try {
+			this.db.put(cfHandle, writeOptions, keyBytes, 0, keyLen, valueBytes, 0, valueLen);
+		}
+		catch (RocksDBException e) {
+			scheduleReloadRocksdb(e);
+			log.error("put Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void put(ColumnFamilyHandle cfHandle, WriteOptions writeOptions, final ByteBuffer keyBB, final ByteBuffer valueBB) throws RocksDBException {
+		assertHold();
+
+		try {
+			this.db.put(cfHandle, writeOptions, keyBB, valueBB);
+		}
+		catch (RocksDBException e) {
+			scheduleReloadRocksdb(e);
+			log.error("put Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void batchPut(WriteOptions writeOptions, final WriteBatch batch) throws RocksDBException {
+		try {
+			this.db.write(writeOptions, batch);
+		}
+		catch (RocksDBException e) {
+			scheduleReloadRocksdb(e);
+			log.error("batchPut Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			batch.clear();
+		}
+	}
+
+	protected byte[] get(ColumnFamilyHandle cfHandle, ReadOptions readOptions, byte[] keyBytes) throws RocksDBException {
+		assertHold();
+
+		try {
+			return this.db.get(cfHandle, readOptions, keyBytes);
+		}
+		catch (RocksDBException e) {
+			log.error("get Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected boolean get(ColumnFamilyHandle cfHandle, ReadOptions readOptions, final ByteBuffer keyBB, final ByteBuffer valueBB) throws RocksDBException {
+		assertHold();
+
+		try {
+			return this.db.get(cfHandle, readOptions, keyBB, valueBB) != RocksDB.NOT_FOUND;
+		}
+		catch (RocksDBException e) {
+			log.error("get Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected List<byte[]> multiGet(final ReadOptions readOptions, final List<ColumnFamilyHandle> columnFamilyHandleList, final List<byte[]> keys) throws RocksDBException {
+		assertHold();
+
+		try {
+			return this.db.multiGetAsList(readOptions, columnFamilyHandleList, keys);
+		}
+		catch (RocksDBException e) {
+			log.error("multiGet Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void delete(ColumnFamilyHandle cfHandle, WriteOptions writeOptions, byte[] keyBytes) throws RocksDBException {
+		assertHold();
+
+		try {
+			this.db.delete(cfHandle, writeOptions, keyBytes);
+		}
+		catch (RocksDBException e) {
+			log.error("delete Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void delete(ColumnFamilyHandle cfHandle, WriteOptions writeOptions, ByteBuffer keyBB) throws RocksDBException {
+		assertHold();
+
+		try {
+			this.db.delete(cfHandle, writeOptions, keyBB);
+		}
+		catch (RocksDBException e) {
+			log.error("delete Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void rangeDelete(ColumnFamilyHandle cfHandle, WriteOptions writeOptions, final byte[] startKey, final byte[] endKey) throws RocksDBException {
+		assertHold();
+
+		try {
+			this.db.deleteRange(cfHandle, writeOptions, startKey, endKey);
+		}
+		catch (RocksDBException e) {
+			scheduleReloadRocksdb(e);
+			log.error("rangeDelete Failed. {}, {}", this.dbPath, getStatusError(e));
+			throw e;
+		}
+		finally {
+			release();
+		}
+	}
+
+	protected void open(final List<ColumnFamilyDescriptor> cfDescriptors, final List<ColumnFamilyHandle> cfHandles) throws RocksDBException {
+		if (this.readOnly) {
+			this.db = RocksDB.openReadOnly(this.options, this.dbPath, cfDescriptors, cfHandles);
+		}
+		else {
+			this.db = RocksDB.open(this.options, this.dbPath, cfDescriptors, cfHandles);
+		}
+
+		if (this.db == null) {
+			throw new RocksDBException("open rocksdb null");
+		}
+
+		this.db.getEnv().setBackgroundThreads(8, Priority.HIGH);
+		this.db.getEnv().setBackgroundThreads(8, Priority.LOW);
+
+	}
+
+	protected abstract boolean postLoad();
+
+	public synchronized boolean start() {
+		if (this.loaded) {
+			return true;
+		}
+
+		if (postLoad()) {
+			this.loaded = true;
+			log.info("start OK. {}", this.dbPath);
+			this.closed = false;
+			return true;
+		}
+		else {
+			return false;
+		}
+	}
+
+	protected abstract void preShutdown();
+
+	public synchronized boolean shutdown() {
+		try {
+			if (!this.loaded) {
+				return true;
+			}
+
+			FlushOptions flushOptions = new FlushOptions();
+			flushOptions.setWaitForFlush(true);
+			try {
+				flush(flushOptions);
+			}
+			finally {
+				flushOptions.close();
+			}
+
+			this.db.cancelAllBackgroundWork(true);
+			this.db.pauseBackgroundWork();
+			preShutdown();
+
+			this.defaultCFHandle.close();
+
+			for (ColumnFamilyOptions opt : this.cfOptions) {
+				opt.close();
+			}
+
+			if (this.writeOptions != null) {
+				this.writeOptions.close();
+			}
+			if (this.ableWalWriteOptions != null) {
+				this.ableWalWriteOptions.close();
+			}
+			if (this.readOptions != null) {
+				this.readOptions.close();
+			}
+			if (this.totalOrderReadOptions != null) {
+				this.totalOrderReadOptions.close();
+			}
+			if (this.options != null) {
+				this.options.close();
+			}
+
+			if (this.db != null && !this.readOnly) {
+				this.db.syncWal();
+			}
+			if (this.db != null) {
+				this.db.closeE();
+			}
+
+			this.cfOptions.clear();
+			this.db = null;
+			this.readOptions = null;
+			this.totalOrderReadOptions = null;
+			this.writeOptions = null;
+			this.ableWalWriteOptions = null;
+			this.options = null;
+
+			this.loaded = false;
+			log.info("shutdown OK. {}", this.dbPath);
+		}
+		catch (Exception e) {
+			log.error("shutdown Failed. {}", this.dbPath, e);
+			return false;
+		}
+
+		return true;
+	}
+
+	public void flushWAL() throws RocksDBException {
+		this.db.flushWal(true);
+	}
+
+	public ColumnFamilyHandle getDefaultCFHandle() {
+		return defaultCFHandle;
+	}
+
+	public Statistics getStatistics() {
+		return this.options.statistics();
+	}
+
+	public void flush(final FlushOptions flushOptions) {
+		if (!this.loaded || this.readOnly || closed) {
+			return;
+		}
+
+		try {
+			if (db != null) {
+				this.db.flush(flushOptions);
+			}
+		}
+		catch (RocksDBException e) {
+			scheduleReloadRocksdb(e);
+			log.error("flush Failed. {}, {}", this.dbPath, getStatusError(e));
+		}
+	}
+
+	public List<LiveFileMetaData> getCompactionStatus() {
+		if (!hold()) {
+			return null;
+		}
+
+		try {
+			return this.db.getLiveFilesMetaData();
+		}
+		finally {
+			release();
+		}
+	}
+
+	private void reloadRocksdb() throws Exception {
+		log.info("reload rocksdb Start. {}", this.dbPath);
+		if (!shutdown() || start()) {
+			log.error("reload rocksdb Failed. {}", this.dbPath);
+			throw new Exception("reload rocksdb Error");
+		}
+		log.error("reload rocksdb OK. {}", this.dbPath);
+	}
+
+	private void scheduleReloadRocksdb(RocksDBException e) {
+		if (e == null || e.getStatus() == null) {
+			return;
+		}
+
+		Status status = e.getStatus();
+		Status.Code code = status.getCode();
+
+		if (Status.Code.Aborted == code || Status.Code.Corruption == code || Status.Code.Undefined == code) {
+			log.error("scheduleReloadRocksdb: {}, {}", this.dbPath, getStatusError(e));
+			scheduleReloadRocksdb0();
+		}
+	}
+
+	private String getStatusError(RocksDBException e) {
+		if (e == null || e.getStatus() == null) {
+			return "null";
+		}
+
+		Status status = e.getStatus();
+		StringBuilder sb = new StringBuilder(64);
+		sb.append("code: ");
+		if (status.getCode() != null) {
+			sb.append(status.getCode().name());
+		}
+		else {
+			sb.append("null");
+		}
+
+		sb.append(", ").append("subCode: ");
+		if (status.getSubCode() != null) {
+			sb.append(status.getSubCode().name());
+		}
+		else {
+			sb.append("null");
+		}
+
+		sb.append(", ").append("state: ").append(status.getState());
+		return sb.toString();
+	}
+
+	private void scheduleReloadRocksdb0() {
+		if (!this.reloadPermit.tryAcquire()) {
+			return;
+		}
+
+		this.closed = true;
+		this.reloadScheduler.schedule(() -> {
+			boolean result = true;
+			try {
+				reloadRocksdb();
+			}
+			catch (Exception e) {
+				result = false;
+			}
+			finally {
+				reloadPermit.release();
+			}
+
+			if (!result) {
+				log.info("reload rocksdb Retry. {}", this.dbPath);
+				scheduleReloadRocksdb0();
+			}
+		}, 10, TimeUnit.SECONDS);
+	}
+
+	private void assertHold() {
+		if (!hold()) {
+			throw new IllegalStateException("rocksDB: " + this + " is not ready");
+		}
+	}
+
 }

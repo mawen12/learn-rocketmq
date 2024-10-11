@@ -5,6 +5,7 @@ import java.util.List;
 
 import javax.net.ssl.SSLProtocolException;
 
+import com.mawen.learn.rocketmq.common.KeyBuilder;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 
 /**
@@ -59,7 +60,18 @@ public class ReceiptHandle {
 			commitLogOffset = Long.parseLong(dataList.get(8));
 		}
 
-		return new ReceiptHandle();
+		return new ReceiptHandleBuilder()
+				.startOffset(startOffset)
+				.retrieveTime(retrieveTime)
+				.invisibleTime(invisibleTime)
+				.reviveQueueId(retrieveQueueId)
+				.topicType(topicType)
+				.brokerName(brokerName)
+				.queueId(queueId)
+				.offset(offset)
+				.commitLogOffset(commitLogOffset)
+				.receiptHandle(receiptHandle)
+				.build();
 	}
 
 	ReceiptHandle(final long startOffset, final long retrieveTime, final long invisibleTime, final long nextVisibleTime,

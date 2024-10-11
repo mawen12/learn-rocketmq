@@ -31,8 +31,46 @@ public class PolishExpr {
 		Stack<Operator> operatorStack = new Stack<>();
 
 		for (int i = 0; i < tokens.size(); i++) {
-			Op op = tokens.get(i);
+			Op token = tokens.get(i);
+
+			if (isOperand(token)) {
+				segments.add(token);
+			}
+			else if (isLeftParenthesis(token)) {
+				operatorStack.push((Operator) token);
+			}
+			else if (isRightParenthesis(token)) {
+				Operator opNew = null;
+				while (!operatorStack.empty() && Operator.LEFTPARENTHESIS != (opNew = operatorStack.pop())) {
+					segments.add(token);
+				}
+				if (opNew == null || Operator.LEFTPARENTHESIS != opNew) {
+					throw new IllegalArgumentException("mismatched parentheses");
+				}
+			}
+			else if (isOperator(token)) {
+				Operator opNew = (Operator) token;
+				if (!operatorStack.isEmpty()) {
+					Operator opOld = operatorStack.peek();
+					if (opOld.isCompareable() && opNew.compare(opOld) != 1) {
+						segments.add(operatorStack.pop());
+					}
+				}
+			}
+			else {
+				throw new IllegalArgumentException("illegal token " + token);
+			}
 		}
+
+		while (!operatorStack.empty()) {
+			Operator operator = operatorStack.pop();
+			if (Operator.LEFTPARENTHESIS == operator || Operator.RIGHTPARENTHESIS == operator) {
+				throw new IllegalArgumentException("mismatched parentheses " + operator);
+			}
+			segments.add(operator);
+		}
+
+		return segments;
 	}
 
 	private static List<Op> participle(String expression) {
