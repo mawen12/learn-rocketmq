@@ -70,7 +70,7 @@ public class RemotingCommand {
 	private int code;
 	private LanguageCode language = LanguageCode.JAVA;
 	private int version;
-	private int opaque = requestId.incrementAndGet();
+	private int opaque = requestId.getAndIncrement();
 	private int flag;
 	private String remark;
 	private Map<String, String> extFields;
@@ -84,9 +84,9 @@ public class RemotingCommand {
 
 	protected RemotingCommand() {}
 
-	public static RemotingCommand createRemotingCommand(int code, CommandCustomHeader customHeader) {
+	public static RemotingCommand createRequestCommand(int code, CommandCustomHeader customHeader) {
 		RemotingCommand cmd = new RemotingCommand();
-		cmd.setCode(cmd);
+		cmd.setCode(code);
 		cmd.customHeader = customHeader;
 		setCmdVersion(cmd);
 		return cmd;
@@ -106,7 +106,7 @@ public class RemotingCommand {
 	}
 
 	public static RemotingCommand buildErrorResponse(int code, String remark, Class<? extends CommandCustomHeader> classHeader) {
-		RemotingCommand response = RemotingCommand.createRemotingCommand(classHeader);
+		RemotingCommand response = RemotingCommand.createResponseCommand(classHeader);
 		response.setCode(code);
 		response.setRemark(remark);
 		return response;
@@ -140,11 +140,11 @@ public class RemotingCommand {
 		return createResponseCommand(code, remark, null);
 	}
 
-	public static RemotingCommand decode(final byte[] array) {
+	public static RemotingCommand decode(final byte[] array) throws RemotingCommandException {
 		return decode(ByteBuffer.wrap(array));
 	}
 
-	public static RemotingCommand decode(final ByteBuffer buffer) {
+	public static RemotingCommand decode(final ByteBuffer buffer) throws RemotingCommandException {
 		return decode(Unpooled.wrappedBuffer(buffer));
 	}
 
@@ -174,15 +174,141 @@ public class RemotingCommand {
 		return length & 0xFFFFFF;
 	}
 
-	private static RemotingCommand headerDecode(ByteBuf buf, int len, SerializeType type) {
+	private static RemotingCommand headerDecode(ByteBuf buf, int len, SerializeType type) throws RemotingCommandException {
 		switch (type) {
 			case JSON:
 				byte[] headerData = new byte[len];
-				
+				buf.readBytes(headerData);
+				RemotingCommand resultJson = RemotingSerializable.decode(headerData, RemotingCommand.class);
+				resultJson.setSerializeTypeCurrentRPC(type);
+				return resultJson;
+			case ROCKETMQ:
+				RemotingCommand resultRMQ = RocketMQSerializable.rocketMQProtocolDecode(buf, len);
+				resultRMQ.setSerializeTypeCurrentRPC(type);
+				return resultRMQ;
+			default:
+				break;
 		}
+
+		return null;
 	}
 
+	public static SerializeType getProtocolType(int source) {
+		return SerializeType.valueOf((byte) ((source >> 24) & 0xFF));
+	}
 
+	public static int createNewRequestId() {
+		return requestId.getAndIncrement();
+	}
+
+	public static SerializeType getSerializeTypeConfigInThisServer() {
+		return serializeTypeConfigInThisServer;
+	}
+
+	public static int markProtocolType(int source, SerializeType type) {
+		return type.getCode() << 24 | (source & 0x00FFFFFF);
+	}
+
+	public void markResponseType() {
+		int bits = 1 << RPC_TYPE;
+		this.flag |= bits;
+	}
+
+	public CommandCustomHeader readCustomHeader() {
+		return customHeader;
+	}
+
+	public void setCustomHeader(CommandCustomHeader customHeader) {
+		this.customHeader = customHeader;
+	}
+
+	public <T extends CommandCustomHeader> T decodeCommandCustomHeader(Class<T> classHeader) throws RemotingCommandException {
+		return decodeCommandCustomHeader(classHeader, false);
+	}
+
+	public <T extends CommandCustomHeader> T decodeCommandCustomHeader(Class<T> classHeader, boolean isCached) throws RemotingCommandException {
+		if (isCached && cachedHeader != null) {
+			return classHeader.cast(cachedHeader);
+		}
+
+		cachedHeader = decodeCommandCustomHeaderDirectly(classHeader, true);
+		if (cachedHeader == null) {
+			return null;
+		}
+
+		return classHeader.cast(cachedHeader);
+	}
+
+	public <T extends CommandCustomHeader> T decodeCommandCustomHeaderDirectly(Class<T> classHeader, boolean useFastEncode) throws RemotingCommandException {
+		T objectHeader;
+		try {
+			objectHeader = classHeader.getDeclaredConstructor().newInstance();
+		}
+		catch (Exception e) {
+			return null;
+		}
+
+		if (this.extFields != null) {
+			if (objectHeader instanceof FastCodesHeader && useFastEncode) {
+				((FastCodesHeader) objectHeader).decode(this.extFields);
+				objectHeader.checkFields();
+				return objectHeader;
+			}
+
+			Field[] fields = getClazzFields(classHeader);
+			for (Field field : fields) {
+				if (!Modifier.isStatic(field.getModifiers())) {
+					String name = field.getName();
+					if (!name.startsWith("this")) {
+						try {
+							String value = this.extFields.get(name);
+							if (value == null) {
+								if (!isFieldNullable(field)) {
+									throw new RemotingCommandException("the custom field <" + name + "> is null");
+								}
+								continue;
+							}
+
+							field.setAccessible(true);
+							String type = getCanonicalName(field.getType());
+							Object valueParsed;
+
+							if (type.equals(STRING_CANONICAL_NAME)) {
+								valueParsed = value;
+							}
+							else if (type.equals(INTEGER_CANONICAL_NAME_1) || type.equals(INTEGER_CANONICAL_NAME_2)) {
+								valueParsed = Integer.parseInt(value);
+							}
+							else if (type.equals(LONG_CANONICAL_NAME_1) || type.equals(LONG_CANONICAL_NAME_2)) {
+								valueParsed = Long.parseLong(value);
+							}
+							else if (type.equals(BOOLEAN_CANONICAL_NAME_1) || type.equals(BOOLEAN_CANONICAL_NAME_2)) {
+								valueParsed = Boolean.parseBoolean(value);
+							}
+							else if (type.equals(DOUBLE_CANONICAL_NAME_1) || type.equals(DOUBLE_CANONICAL_NAME_2)) {
+								valueParsed = Double.parseDouble(value);
+							}
+							else if (type.equals(BOUNDARY_TYPE_CANONICAL_NAME)) {
+								valueParsed = BoundaryType.getType(value);
+							}
+							else {
+								throw new RemotingCommandException("the custom field <" + name + "> type is not supported");
+							}
+
+							field.set(objectHeader, valueParsed);
+						}
+						catch (Throwable e) {
+							log.error("Failed field [{}] decoding", name, e);
+						}
+					}
+				}
+			}
+
+			objectHeader.checkFields();
+		}
+
+		return objectHeader;
+	}
 
 	public void fastEncodeHeader(ByteBuf out) {
 		int bodySize = this.body != null ? this.body.length : 0;
@@ -382,7 +508,7 @@ public class RemotingCommand {
 		return extFields;
 	}
 
-	public void setExtFields(HashMap<String, String> extFields) {
+	public void setExtFields(Map<String, String> extFields) {
 		this.extFields = extFields;
 	}
 

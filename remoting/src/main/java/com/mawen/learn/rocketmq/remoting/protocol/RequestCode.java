@@ -122,7 +122,7 @@ public class RequestCode {
 
 	public static final int GET_PRODUCER_CONNECTION_LIST = 204;
 
-	public static final int WIRE_WRITE_PERM_OF_BROKER = 205;
+	public static final int WIPE_WRITE_PERM_OF_BROKER = 205;
 
 	public static final int GET_ALL_TOPIC_LIST_FROM_NAMESERVER = 206;
 
@@ -218,7 +218,7 @@ public class RequestCode {
 
 	public static final int DELETE_EXPIRED_COMMITLOG = 329;
 
-	public static final int QUERY_TOPIC_BY_CONSUMER = 343;
+	public static final int QUERY_TOPICS_BY_CONSUMER = 343;
 
 	public static final int QUERY_SUBSCRIPTION_BY_CONSUMER = 345;
 
@@ -276,7 +276,7 @@ public class RequestCode {
 
 	public static final int CLEAN_BROKER_DATA = 1011;
 
-	public static final int CONTROLLER_GET_INDEX_BROKER_ID = 1012;
+	public static final int CONTROLLER_GET_NEXT_BROKER_ID = 1012;
 
 	public static final int CONTROLLER_APPLY_BROKER_ID = 1013;
 
