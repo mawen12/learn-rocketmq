@@ -7,7 +7,6 @@ import com.mawen.learn.rocketmq.remoting.CommandCustomHeader;
 import com.mawen.learn.rocketmq.remoting.annotation.CFNotNull;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
-import com.mawen.learn.rocketmq.remoting.protocol.RequestType;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

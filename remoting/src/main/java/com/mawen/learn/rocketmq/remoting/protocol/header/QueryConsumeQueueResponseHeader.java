@@ -7,7 +7,6 @@ import com.mawen.learn.rocketmq.common.resource.RocketMQResource;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
 import com.mawen.learn.rocketmq.remoting.rpc.TopicQueueRequestHeader;
-import org.omg.PortableInterceptor.ACTIVE;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

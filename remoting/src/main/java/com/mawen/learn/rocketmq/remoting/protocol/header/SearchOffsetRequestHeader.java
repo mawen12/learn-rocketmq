@@ -6,7 +6,6 @@ import com.mawen.learn.rocketmq.common.action.RocketMQAction;
 import com.mawen.learn.rocketmq.common.resource.ResourceType;
 import com.mawen.learn.rocketmq.common.resource.RocketMQResource;
 import com.mawen.learn.rocketmq.remoting.annotation.CFNotNull;
-import com.mawen.learn.rocketmq.remoting.annotation.CFNullable;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
 import com.mawen.learn.rocketmq.remoting.rpc.TopicQueueRequestHeader;

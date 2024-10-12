@@ -7,7 +7,6 @@ import java.util.Map;
 
 import com.mawen.learn.rocketmq.common.KeyBuilder;
 import com.mawen.learn.rocketmq.common.MixAll;
-import com.mawen.learn.rocketmq.common.message.Message;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 
 /**

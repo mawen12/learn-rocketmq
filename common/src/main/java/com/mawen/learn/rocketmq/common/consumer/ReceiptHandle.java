@@ -3,8 +3,6 @@ package com.mawen.learn.rocketmq.common.consumer;
 import java.util.Arrays;
 import java.util.List;
 
-import javax.net.ssl.SSLProtocolException;
-
 import com.mawen.learn.rocketmq.common.KeyBuilder;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 

@@ -3,14 +3,11 @@ package com.mawen.learn.rocketmq.common.utils;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.List;
 
-import com.alibaba.fastjson.util.IOUtils;
 import com.mawen.learn.rocketmq.common.MQVersion;
 import com.mawen.learn.rocketmq.common.MixAll;
 

@@ -6,7 +6,6 @@ import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
-import org.apache.commons.logging.LogFactory;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 

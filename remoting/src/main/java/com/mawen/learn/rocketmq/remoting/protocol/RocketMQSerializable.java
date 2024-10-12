@@ -9,7 +9,6 @@ import java.util.Map;
 
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufUtil;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

@@ -1,6 +1,5 @@
 package com.mawen.learn.rocketmq.common.attribute;
 
-import java.security.Key;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;

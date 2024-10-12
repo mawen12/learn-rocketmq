@@ -1,7 +1,6 @@
 package com.mawen.learn.rocketmq.common;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 
 import com.mawen.learn.rocketmq.common.attribute.Attribute;

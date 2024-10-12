@@ -3,7 +3,6 @@ package com.mawen.learn.rocketmq.common.constant;
 
 import io.grpc.Context;
 import io.grpc.Metadata;
-import io.opentelemetry.sdk.metrics.internal.state.Measurement;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

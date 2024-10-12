@@ -6,7 +6,6 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -16,10 +15,10 @@ import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
+import com.mawen.learn.rocketmq.remoting.netty.AttributeKeys;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
-import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.util.Attribute;
 import io.netty.util.AttributeKey;
@@ -255,6 +254,90 @@ public class RemotingHelper {
 	}
 
 	public static String parseSocketAddressAddr(SocketAddress address) {
+		if (address != null) {
+			String addr = address.toString();
+			int index = addr.lastIndexOf("/");
+			return index != -1 ? addr.substring(index + 1) : addr;
+		}
+		return "";
+	}
 
+	public static Integer parseSocketAddressPort(SocketAddress socketAddress) {
+		if (socketAddress instanceof InetSocketAddress) {
+			return ((InetSocketAddress) socketAddress).getPort();
+		}
+		return -1;
+	}
+
+	public static int ipToInt(String ip) {
+		String[] ips = ip.split("\\.");
+		return (Integer.parseInt(ips[0]) << 24)
+				+ (Integer.parseInt(ips[1]) << 16)
+				+ (Integer.parseInt(ips[2]) << 8)
+				+ Integer.parseInt(ips[3]);
+	}
+
+	public static boolean ipInCIDR(String ip, String cidr) {
+		int ipAddr = ipToInt(ip);
+		String[] cidrArr = cidr.split("/");
+		int netId = Integer.parseInt(cidrArr[1]);
+		int mask = 0xFFFFFFFF << (32 - netId);
+		int cidrIpAddr = ipToInt(cidrArr[0]);
+
+		return (ipAddr & mask) == (cidrIpAddr & mask);
+	}
+
+	public static SocketChannel connect(SocketAddress remote) {
+		return connect(remote, 5 * 1000);
+	}
+
+	public static SocketChannel connect(SocketAddress remote, final int timeoutMillis) {
+		SocketChannel sc = null;
+		try {
+			sc = SocketChannel.open();
+			sc.configureBlocking(true);
+			sc.socket().setSoLinger(false, -1);
+			sc.socket().setTcpNoDelay(true);
+			if (NettySystemConfig.socketSndbufSize > 0) {
+				sc.socket().setReceiveBufferSize(NettySystemConfig.socketSndbufSize);
+			}
+			if (NettySystemConfig.socketRcvbufSize > 0) {
+				sc.socket().setSendBufferSize(NettySystemConfig.);
+			}
+			sc.socket().connect(remote, timeoutMillis);
+			sc.configureBlocking(false);
+			return sc;
+		}
+		catch (Exception e) {
+			if (sc != null) {
+				try {
+					sc.close();
+				}
+				catch (IOException ioe) {
+					ioe.printStackTrace();
+				}
+			}
+		}
+		return null;
+	}
+
+	public static void closeChannel(Channel channel) {
+		String addrRemote = RemotingHelper.parseChannelRemoteAddr(channel);
+		if ("".equals(addrRemote)) {
+			channel.close();
+		}
+		else {
+			channel.close().addListener(future -> {
+				log.info("closeChannel: close the connection to remote address[{}] result: {}", addrRemote, future.isSuccess());
+			});
+		}
+	}
+
+	public static String getRequestCodeDesc(int code) {
+		return REQUEST_CODE_MAP.getOrDefault(code, String.valueOf(code));
+	}
+
+	public static String getResponseCodeDesc(int code) {
+		return RESPONSE_CODE_MAP.getOrDefault(code, String.valueOf(code));
 	}
 }

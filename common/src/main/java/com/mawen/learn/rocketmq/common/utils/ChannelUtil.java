@@ -3,7 +3,6 @@ package com.mawen.learn.rocketmq.common.utils;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
-import java.net.SocketAddress;
 
 import io.netty.channel.Channel;
 
