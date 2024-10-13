@@ -10,6 +10,8 @@ import java.util.function.Consumer;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
 import com.mawen.learn.rocketmq.remoting.protocol.admin.ConsumeStats;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.ConsumeType;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
@@ -78,7 +80,7 @@ public class ConsumerRunningInfo extends RemotingSerializable {
 		if (property == null) {
 			property = ((ConsumeType) consumerRunningInfo.getProperties().get(ConsumerRunningInfo.PROP_CONSUME_TYPE)).name();
 		}
-		return ComsumeType.valueOf(property) == ConsumeType.CONSUME_PASSIVELY;
+		return ConsumeType.valueOf(property) == ConsumeType.CONSUME_PASSIVELY;
 	}
 
 	public static boolean analyzeRebalance(TreeMap<String, ConsumerRunningInfo> criTable) {

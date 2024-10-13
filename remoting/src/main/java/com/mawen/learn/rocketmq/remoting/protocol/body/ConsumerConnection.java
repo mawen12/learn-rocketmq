@@ -5,8 +5,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import com.mawen.learn.rocketmq.common.consumer.ConsumerFromWhere;
+import com.mawen.learn.rocketmq.common.consumer.ConsumeFromWhere;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.ConsumeType;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.MessageModel;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
@@ -22,7 +25,7 @@ public class ConsumerConnection extends RemotingSerializable {
 
 	private MessageModel messageModel;
 
-	private ConsumerFromWhere consumerFromWhere;
+	private ConsumeFromWhere consumeFromWhere;
 
 	public int computeMinVersion() {
 		int minVersion = Integer.MAX_VALUE;
@@ -66,11 +69,11 @@ public class ConsumerConnection extends RemotingSerializable {
 		this.messageModel = messageModel;
 	}
 
-	public ConsumerFromWhere getConsumerFromWhere() {
-		return consumerFromWhere;
+	public ConsumeFromWhere getConsumeFromWhere() {
+		return consumeFromWhere;
 	}
 
-	public void setConsumerFromWhere(ConsumerFromWhere consumerFromWhere) {
-		this.consumerFromWhere = consumerFromWhere;
+	public void setConsumeFromWhere(ConsumeFromWhere consumeFromWhere) {
+		this.consumeFromWhere = consumeFromWhere;
 	}
 }

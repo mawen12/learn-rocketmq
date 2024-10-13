@@ -1,6 +1,7 @@
 package com.mawen.learn.rocketmq.remoting.protocol.body;
 
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
