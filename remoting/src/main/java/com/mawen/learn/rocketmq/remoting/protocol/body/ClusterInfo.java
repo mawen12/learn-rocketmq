@@ -7,6 +7,7 @@ import java.util.Set;
 
 import com.google.common.base.Objects;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.route.BrokerData;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

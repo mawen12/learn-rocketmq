@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Random;
 
 import com.mawen.learn.rocketmq.common.MixAll;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
@@ -116,7 +117,43 @@ public class BrokerData implements Comparable<BrokerData>{
 	}
 
 	@Override
+	public int hashCode() {
+		final int prime = 31;
+		int result = 1;
+		result = prime * result + ((brokerAddrs == null) ? 0 : brokerAddrs.hashCode());
+		result = prime * result + ((brokerName == null) ? 0 : brokerName.hashCode());
+		return result;
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		BrokerData other = (BrokerData) obj;
+		if (brokerAddrs == null) {
+			if (other.brokerAddrs != null) {
+				return false;
+			}
+		} else if (!brokerAddrs.equals(other.brokerAddrs)) {
+			return false;
+		}
+		return StringUtils.equals(brokerName, other.brokerName);
+	}
+
+	@Override
+	public String toString() {
+		return "BrokerData [brokerName=" + brokerName + ", brokerAddrs=" + brokerAddrs + ", enableActingMaster=" + enableActingMaster + "]";
+	}
+
+	@Override
 	public int compareTo(BrokerData o) {
-		return 0;
+		return this.brokerName.compareTo(o.getBrokerName());
 	}
 }
