@@ -1,5 +1,7 @@
 package com.mawen.learn.rocketmq.remoting.netty;
 
+import com.mawen.learn.rocketmq.remoting.common.TlsMode;
+
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/14
@@ -42,5 +44,27 @@ public class TlsSystemConfig {
 
 	public static String tlsServerNeedClientAuth = System.getProperty(TLS_SERVER_NEED_CLIENT_AUTH, "none");
 
-	
+	public static String tlsServerKeyPath = System.getProperty(TLS_SERVER_KEYPATH, null);
+
+	public static String tlsServerKeyPassword = System.getProperty(TLS_SERVER_KEYPASSWORD, null);
+
+	public static String tlsServerCertPath = System.getProperty(TLS_SERVER_CERTPATH, null);
+
+	public static boolean tlsServerAuthClient = Boolean.parseBoolean(System.getProperty(TLS_SERVER_AUTHCLIENT, "false"));
+
+	public static String tlsServerTrustCertPath = System.getProperty(TLS_SERVER_TRUSTCERTPATH, null);
+
+	public static String tlsClientKeyPath = System.getProperty(TLS_CLIENT_KEYPATH, null);
+
+	public static String tlsClientKeyPassword = System.getProperty(TLS_CLIENT_KEYPASSWORD, null);
+
+	public static String tlsClientCertPath = System.getProperty(TLS_CLIENT_CERTPATH, null);
+
+	public static boolean tlsClientAuthServer = Boolean.parseBoolean(System.getProperty(TLS_CLIENT_AUTHSERVER, "false"));
+
+	public static String tlsClientTrustCertPath = System.getProperty(TLS_CLIENT_TRUSTCERTPATH, null);
+
+	public static TlsMode tlsMode = TlsMode.parse(System.getProperty(TLS_SERVER_MODE, "permissive"));
+
+	public static String tlsConfigFile = System.getProperty(TLS_CONFIG_FILE, "/etc/rocketmq/tls.properties");
 }

@@ -10,8 +10,8 @@ public class AbortProcessException extends RuntimeException {
 
 	private static final long serialVersionUID = 5739592731939329575L;
 
-	private int responseCode;
-	private String errorMessage;
+	private final int responseCode;
+	private final String errorMessage;
 
 	public AbortProcessException(String errorMessage, Throwable cause) {
 		super(FAQUrl.attachDefaultURL(errorMessage), cause);
@@ -25,5 +25,11 @@ public class AbortProcessException extends RuntimeException {
 		this.errorMessage = errorMessage;
 	}
 
+	public int getResponseCode() {
+		return responseCode;
+	}
 
+	public String getErrorMessage() {
+		return errorMessage;
+	}
 }

@@ -1,4 +1,4 @@
-package com.mawen.learn.rocketmq.remoting;
+package com.mawen.learn.rocketmq.remoting.common;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -16,6 +16,7 @@ import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 import com.mawen.learn.rocketmq.remoting.netty.AttributeKeys;
+import com.mawen.learn.rocketmq.remoting.netty.NettySystemConfig;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
@@ -91,7 +92,7 @@ public class RemotingHelper {
 		long beginTime = System.currentTimeMillis();
 
 		SocketAddress socketAddress = NetworkUtil.string2SocketAddress(addr);
-		SocketChannel socketChannel = connection(socketAddress);
+		SocketChannel socketChannel = connect(socketAddress);
 		if (socketChannel != null) {
 			boolean sendRequestOK = false;
 
@@ -302,7 +303,7 @@ public class RemotingHelper {
 				sc.socket().setReceiveBufferSize(NettySystemConfig.socketSndbufSize);
 			}
 			if (NettySystemConfig.socketRcvbufSize > 0) {
-				sc.socket().setSendBufferSize(NettySystemConfig.);
+				sc.socket().setSendBufferSize(NettySystemConfig.socketRcvbufSize);
 			}
 			sc.socket().connect(remote, timeoutMillis);
 			sc.configureBlocking(false);

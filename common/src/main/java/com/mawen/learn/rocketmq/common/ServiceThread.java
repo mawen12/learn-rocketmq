@@ -44,6 +44,10 @@ public abstract class ServiceThread implements Runnable {
 		log.info("Start service thread: {} started: {} lastThread: {}", getServiceName(), started.get(), thread);
 	}
 
+	public void shutdown() {
+		this.shutdown(false);
+	}
+
 	public void shutdown(final boolean interrupt) {
 		log.info("Try to shutdown service thread: {} started: {} lastThread: {}", getServiceName(), started.get(), thread);
 
