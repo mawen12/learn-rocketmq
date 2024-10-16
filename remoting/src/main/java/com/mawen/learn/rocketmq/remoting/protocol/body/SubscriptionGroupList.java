@@ -1,10 +1,10 @@
 package com.mawen.learn.rocketmq.remoting.protocol.body;
 
 import java.util.List;
-import java.util.concurrent.Flow;
 
 import com.mawen.learn.rocketmq.remoting.annotation.CFNotNull;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

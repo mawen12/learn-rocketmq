@@ -4,6 +4,7 @@ import java.util.Map;
 
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingDetail;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

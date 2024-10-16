@@ -1,6 +1,7 @@
 package com.mawen.learn.rocketmq.remoting.protocol;
 
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
+import com.mawen.learn.rocketmq.remoting.common.RemotingHelper;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.RegisterBrokerRequestHeader;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;

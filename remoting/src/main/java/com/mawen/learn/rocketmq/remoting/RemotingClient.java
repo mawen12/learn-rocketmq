@@ -8,12 +8,15 @@ import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
+import com.mawen.learn.rocketmq.remoting.netty.NettyRequestProcessor;
+import com.mawen.learn.rocketmq.remoting.netty.ResponseFuture;
+import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/11
  */
-public interface RemotingClient extends RemotingServer{
+public interface RemotingClient extends RemotingService {
 
 	void updateNameServerAddressList(final List<String> addrs);
 

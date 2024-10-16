@@ -5,6 +5,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

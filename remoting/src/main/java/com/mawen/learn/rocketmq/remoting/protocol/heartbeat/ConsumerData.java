@@ -4,7 +4,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import com.mawen.learn.rocketmq.common.consumer.ConsumeFromWhere;
-import com.mawen.learn.rocketmq.common.consumer.ConsumerFromWhere;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>

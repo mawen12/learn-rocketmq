@@ -5,16 +5,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingDetail;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingInfo;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/13
  */
-public class TopicConfigAndMappingSerializeWrapper extends TopicConfigSerailizeWrapper{
+public class TopicConfigAndMappingSerializeWrapper extends TopicConfigSerializeWrapper{
 
-	private ConcurrentMap<String, TopicQueueMappingInfo> topicQueueMappingInfoMap = new ConcurrentHashMap<>();
+	private Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap = new ConcurrentHashMap<>();
 
-	private ConcurrentMap<String, TopicQueueMappingDetail> topicQueueMappingDetailMap = new ConcurrentHashMap<>();
+	private Map<String, TopicQueueMappingDetail> topicQueueMappingDetailMap = new ConcurrentHashMap<>();
 
 	private DataVersion mappingDataVersion = new DataVersion();
 
@@ -29,19 +31,19 @@ public class TopicConfigAndMappingSerializeWrapper extends TopicConfigSerailizeW
 		return mappingSerializeWrapper;
 	}
 
-	public ConcurrentMap<String,TopicQueueMappingInfo> getTopicQueueMappingInfoMap() {
+	public Map<String,TopicQueueMappingInfo> getTopicQueueMappingInfoMap() {
 		return topicQueueMappingInfoMap;
 	}
 
-	public void setTopicQueueMappingInfoMap(ConcurrentMap<String,TopicQueueMappingInfo> topicQueueMappingInfoMap) {
+	public void setTopicQueueMappingInfoMap(Map<String,TopicQueueMappingInfo> topicQueueMappingInfoMap) {
 		this.topicQueueMappingInfoMap = topicQueueMappingInfoMap;
 	}
 
-	public ConcurrentMap<String,TopicQueueMappingDetail> getTopicQueueMappingDetailMap() {
+	public Map<String,TopicQueueMappingDetail> getTopicQueueMappingDetailMap() {
 		return topicQueueMappingDetailMap;
 	}
 
-	public void setTopicQueueMappingDetailMap(ConcurrentMap<String,TopicQueueMappingDetail> topicQueueMappingDetailMap) {
+	public void setTopicQueueMappingDetailMap(Map<String,TopicQueueMappingDetail> topicQueueMappingDetailMap) {
 		this.topicQueueMappingDetailMap = topicQueueMappingDetailMap;
 	}
 

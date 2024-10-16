@@ -39,7 +39,7 @@ public class ConsumerRunningInfo extends RemotingSerializable {
 
 	private TreeMap<MessageQueue, PopProcessQueueInfo> mqPopTable = new TreeMap<>();
 
-	private TreeMap<String, ConsumeStats> statusTable = new TreeMap<>();
+	private TreeMap<String, ConsumeStatus> statusTable = new TreeMap<>();
 
 	private TreeMap<String, String> userConsumeInfo = new TreeMap<>();
 
@@ -212,7 +212,7 @@ public class ConsumerRunningInfo extends RemotingSerializable {
 				"#ConsumeFailedMsgsInHour"
 		));
 
-		for (Map.Entry<String, ConsumeStats> entry : this.statusTable.entrySet()) {
+		for (Map.Entry<String, ConsumeStatus> entry : this.statusTable.entrySet()) {
 			String item = String.format("%-32s  %14.2f %14.2f %14.2f %14.2f %18.2f %25d%n",
 					entry.getKey(),
 					entry.getValue().getPullRT(),
@@ -272,11 +272,11 @@ public class ConsumerRunningInfo extends RemotingSerializable {
 		this.mqPopTable = mqPopTable;
 	}
 
-	public TreeMap<String, ConsumeStats> getStatusTable() {
+	public TreeMap<String, ConsumeStatus> getStatusTable() {
 		return statusTable;
 	}
 
-	public void setStatusTable(TreeMap<String, ConsumeStats> statusTable) {
+	public void setStatusTable(TreeMap<String, ConsumeStatus> statusTable) {
 		this.statusTable = statusTable;
 	}
 

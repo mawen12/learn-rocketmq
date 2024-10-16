@@ -9,7 +9,7 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>remoting</artifactId>
+    <artifactId>rocketmq-remoting</artifactId>
     <packaging>jar</packaging>
     <name>rocketmq-remoting ${project.version}</name>
 

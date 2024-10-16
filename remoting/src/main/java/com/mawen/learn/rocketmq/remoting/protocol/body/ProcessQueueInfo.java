@@ -28,7 +28,7 @@ public class ProcessQueueInfo {
 
 	private long lastLockTimestamp;
 
-	private boolean dropped;
+	private boolean droped;
 
 	private long lastPullTimestamp;
 
@@ -122,12 +122,12 @@ public class ProcessQueueInfo {
 		this.lastLockTimestamp = lastLockTimestamp;
 	}
 
-	public boolean isDropped() {
-		return dropped;
+	public boolean isDroped() {
+		return droped;
 	}
 
-	public void setDropped(boolean dropped) {
-		this.dropped = dropped;
+	public void setDroped(boolean droped) {
+		this.droped = droped;
 	}
 
 	public long getLastPullTimestamp() {
@@ -160,7 +160,7 @@ public class ProcessQueueInfo {
 		       ", locked=" + locked +
 		       ", tryUnlockTimes=" + tryUnlockTimes +
 		       ", lastLockTimestamp=" + lastLockTimestamp +
-		       ", dropped=" + dropped +
+		       ", dropped=" + droped +
 		       ", lastPullTimestamp=" + lastPullTimestamp +
 		       ", lastConsumeTimestamp=" + lastConsumeTimestamp +
 		       '}';

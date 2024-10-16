@@ -4,7 +4,6 @@ import java.util.Arrays;
 
 import com.mawen.learn.rocketmq.common.filter.ExpressionType;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
-import jdk.jfr.internal.consumer.StringParser;
 import org.apache.commons.lang3.StringUtils;
 
 /**

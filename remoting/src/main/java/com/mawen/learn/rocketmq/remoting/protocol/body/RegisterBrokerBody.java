@@ -21,6 +21,7 @@ import com.mawen.learn.rocketmq.common.TopicConfig;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingInfo;
 import io.netty.buffer.ByteBuf;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
@@ -93,7 +94,7 @@ public class RegisterBrokerBody extends RemotingSerializable {
 		return null;
 	}
 
-	public static RegisterBrokerBody decode(byte[] data, boolean compressed, MQVersion.Version brokerVersion) {
+	public static RegisterBrokerBody decode(byte[] data, boolean compressed, MQVersion.Version brokerVersion) throws IOException {
 		if (!compressed) {
 			return RegisterBrokerBody.decode(data, RegisterBrokerBody.class);
 		}
