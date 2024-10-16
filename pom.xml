@@ -19,6 +19,7 @@
     <modules>
         <module>remoting</module>
         <module>common</module>
+        <module>client</module>
     </modules>
 
     <properties>
@@ -457,10 +458,14 @@
 
     <dependencyManagement>
         <dependencies>
-
             <dependency>
                 <groupId>${project.groupId}</groupId>
                 <artifactId>rocketmq-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>${project.groupId}</groupId>
+                <artifactId>rocketmq-remoting</artifactId>
                 <version>${project.version}</version>
             </dependency>
 
@@ -926,10 +931,19 @@
                     </exclusion>
                 </exclusions>
             </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>1.18.34</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
