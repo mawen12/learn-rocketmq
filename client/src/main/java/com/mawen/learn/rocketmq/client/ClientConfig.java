@@ -10,6 +10,7 @@ import com.mawen.learn.rocketmq.common.utils.NameServerAddressUtils;
 import com.mawen.learn.rocketmq.common.utils.NetworkUtil;
 import com.mawen.learn.rocketmq.remoting.netty.TlsSystemConfig;
 import com.mawen.learn.rocketmq.remoting.protocol.LanguageCode;
+import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.RequestType;
 import lombok.Getter;
 import lombok.Setter;
@@ -98,8 +99,8 @@ public class ClientConfig {
 		}
 	}
 
-	public String withNamespace(String resouece) {
-		return NamespaceUtil.wrapNamespace(this.getNamespace(), resouece);
+	public String withNamespace(String resource) {
+		return NamespaceUtil.wrapNamespace(this.getNamespace(), resource);
 	}
 
 	public Set<String> withNamespace(Set<String> resourceSet) {
