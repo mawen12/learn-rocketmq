@@ -11,7 +11,7 @@ import com.mawen.learn.rocketmq.remoting.rpc.RpcRequestHeader;
  * @since 2024/10/12
  */
 @RocketMQAction(value = RequestCode.UNLOCK_BATCH_MQ, action = Action.SUB)
-public class UnlocalBatchMqRequestHeader extends RpcRequestHeader {
+public class UnlockBatchMqRequestHeader extends RpcRequestHeader {
 
 	@Override
 	public void checkFields() throws RemotingCommandException {

@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 
+import com.mawen.learn.rocketmq.client.hook.EndTransactionHook;
 import com.mawen.learn.rocketmq.client.hook.SendMessageHook;
 import com.mawen.learn.rocketmq.client.producer.DefaultMQProducer;
 import com.mawen.learn.rocketmq.client.producer.TransactionCheckListener;

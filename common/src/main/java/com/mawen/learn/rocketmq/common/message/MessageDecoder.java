@@ -19,6 +19,7 @@ import com.mawen.learn.rocketmq.common.compression.Compressor;
 import com.mawen.learn.rocketmq.common.compression.CompressorFactory;
 import com.mawen.learn.rocketmq.common.sysflag.MessageSysFlag;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufUtil;
 
 /**
  * <pre>{@code
@@ -169,6 +170,20 @@ public class MessageDecoder {
 
 	public static MessageExt clientDecode(ByteBuffer byteBuffer, final boolean readBody) {
 		return decode(byteBuffer, readBody, true);
+	}
+
+	public static List<MessageExt> decodeBatch(ByteBuffer buffer, final boolean readBody, final boolean decompressBody, final boolean isClient) {
+		List<MessageExt> msgExts = new ArrayList<>();
+		while (buffer.hasRemaining()) {
+			MessageExt msgExt = decode(buffer, readBody, decompressBody, isClient);
+			if (msgExt != null) {
+				msgExts.add(msgExt);
+			}
+			else {
+				break;
+			}
+		}
+		return msgExts;
 	}
 
 	public static MessageExt decode(ByteBuffer byteBuffer) {
