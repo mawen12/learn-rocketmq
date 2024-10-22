@@ -6,7 +6,7 @@ import com.mawen.learn.rocketmq.common.UtilAll;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/16
  */
-public class ResponseTimeoutException extends Exception{
+public class RequestTimeoutException extends Exception{
 
 	private static final long serialVersionUID = -1030527431719138518L;
 
@@ -14,13 +14,13 @@ public class ResponseTimeoutException extends Exception{
 
 	private String errorMessage;
 
-	public ResponseTimeoutException(String errorMessage, Throwable cause) {
+	public RequestTimeoutException(String errorMessage, Throwable cause) {
 		super(errorMessage, cause);
 		this.responseCode = -1;
 		this.errorMessage = errorMessage;
 	}
 
-	public ResponseTimeoutException(int responseCode, String errorMessage) {
+	public RequestTimeoutException(int responseCode, String errorMessage) {
 		super("CODE: " + UtilAll.responseCode2String(responseCode) + " DESC: " + errorMessage);
 		this.responseCode = responseCode;
 		this.errorMessage = errorMessage;

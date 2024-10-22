@@ -168,7 +168,7 @@ public class RequestCode {
 
 	public static final int QUERY_CONSUME_TIME_SPAN = 303;
 
-	public static final int GET_SYSTEM_TOPIC_LIST_FROM_MS = 304;
+	public static final int GET_SYSTEM_TOPIC_LIST_FROM_NS = 304;
 
 	public static final int GET_SYSTEM_TOPIC_LIST_FROM_BROKER = 305;
 
@@ -183,6 +183,8 @@ public class RequestCode {
 	public static final int SEND_MESSAGE_V2 = 310;
 
 	public static final int GET_UNIT_TOPIC_LIST = 311;
+
+	public static final int GET_HAS_UNIT_SUB_TOPIC_LIST = 312;
 
 	public static final int GET_HAS_UNIT_SUB_UNUNIT_TOPIC_LIST = 313;
 

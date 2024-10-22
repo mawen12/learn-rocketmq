@@ -5,7 +5,10 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -14,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import com.alibaba.fastjson.JSON;
 import com.mawen.learn.rocketmq.client.ClientConfig;
+import com.mawen.learn.rocketmq.client.Validators;
 import com.mawen.learn.rocketmq.client.consumer.PopCallback;
 import com.mawen.learn.rocketmq.client.consumer.PopResult;
 import com.mawen.learn.rocketmq.client.consumer.PopStatus;
@@ -31,9 +35,11 @@ import com.mawen.learn.rocketmq.client.impl.producer.TopicPublishInfo;
 import com.mawen.learn.rocketmq.client.producer.SendCallback;
 import com.mawen.learn.rocketmq.client.producer.SendResult;
 import com.mawen.learn.rocketmq.client.producer.SendStatus;
+import com.mawen.learn.rocketmq.client.rpchook.NamespaceRpcHook;
 import com.mawen.learn.rocketmq.common.BoundaryType;
 import com.mawen.learn.rocketmq.common.MQVersion;
 import com.mawen.learn.rocketmq.common.MixAll;
+import com.mawen.learn.rocketmq.common.Pair;
 import com.mawen.learn.rocketmq.common.PlainAccessConfig;
 import com.mawen.learn.rocketmq.common.TopicConfig;
 import com.mawen.learn.rocketmq.common.UtilAll;
@@ -47,9 +53,11 @@ import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.common.message.MessageQueueAssignment;
+import com.mawen.learn.rocketmq.common.message.MessageRequestMode;
 import com.mawen.learn.rocketmq.common.namesrv.DefaultTopAddressing;
 import com.mawen.learn.rocketmq.common.namesrv.NameServerUpdateCallback;
 import com.mawen.learn.rocketmq.common.namesrv.TopAddressing;
+import com.mawen.learn.rocketmq.common.queue.RoundQueue;
 import com.mawen.learn.rocketmq.common.sysflag.PullSysFlag;
 import com.mawen.learn.rocketmq.common.topic.TopicValidator;
 import com.mawen.learn.rocketmq.remoting.ChannelEventListener;
@@ -68,6 +76,8 @@ import com.mawen.learn.rocketmq.remoting.netty.NettyClientConfig;
 import com.mawen.learn.rocketmq.remoting.netty.NettyRemotingClient;
 import com.mawen.learn.rocketmq.remoting.netty.ResponseFuture;
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
+import com.mawen.learn.rocketmq.remoting.protocol.EpochEntry;
+import com.mawen.learn.rocketmq.remoting.protocol.LanguageCode;
 import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingSerializable;
@@ -75,34 +85,65 @@ import com.mawen.learn.rocketmq.remoting.protocol.RequestCode;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
 import com.mawen.learn.rocketmq.remoting.protocol.admin.ConsumeStats;
 import com.mawen.learn.rocketmq.remoting.protocol.admin.TopicStatsTable;
+import com.mawen.learn.rocketmq.remoting.protocol.body.AclInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerMemberGroup;
+import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerReplicasInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerStatsData;
+import com.mawen.learn.rocketmq.remoting.protocol.body.CheckClientRequestBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ClusterAclVersionInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ClusterInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumeMessageDirectlyResult;
+import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumeStatsList;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumerConnection;
+import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumerRunningInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.body.EpochEntryCache;
+import com.mawen.learn.rocketmq.remoting.protocol.body.GetConsumerStatusBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.GroupList;
+import com.mawen.learn.rocketmq.remoting.protocol.body.HARuntimeInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.body.KVTable;
 import com.mawen.learn.rocketmq.remoting.protocol.body.LockBatchRequestBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.LockBatchResponseBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ProducerConnection;
-import com.mawen.learn.rocketmq.remoting.protocol.body.ProducerInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ProducerTableInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.body.QueryAssignmentRequestBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.QueryAssignmentResponseBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.QueryConsumeQueueResponseBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.QueryConsumeTimeSpanBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.QueryCorrectionOffsetBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.QuerySubscriptionResponseBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.QueueTimeSpan;
+import com.mawen.learn.rocketmq.remoting.protocol.body.ResetOffsetBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.SetMessageRequestModeRequestBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.SubscriptionGroupWrapper;
+import com.mawen.learn.rocketmq.remoting.protocol.body.TopicConfigSerializeWrapper;
 import com.mawen.learn.rocketmq.remoting.protocol.body.TopicList;
 import com.mawen.learn.rocketmq.remoting.protocol.body.UnlockBatchRequestBody;
+import com.mawen.learn.rocketmq.remoting.protocol.body.UserInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.header.AddBrokerRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.CloneGroupOffsetRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ConsumeMessageDirectlyResultRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.ConsumerSendMsgBackRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.CreateAccessConfigRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.CreateAclRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.CreateTopicRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.CreateUserRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.DeleteAccessConfigRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.DeleteAclRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.DeleteSubscriptionGroupRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.DeleteTopicRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.DeleteUserRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.EndTransactionRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.ExtraInfoUtil;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetAclRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetAllProducerInfoRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetBrokerAclConfigResponseBroker;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerConnectionListRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerListByGroupRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerListByGroupResponseBody;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerRunningInfoRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerStatsInBrokerHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerStatsRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetConsumerStatusRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetEarliestMsgStoretimeRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetEarliestStoretimeResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetMaxOffsetRequestHeader;
@@ -110,16 +151,32 @@ import com.mawen.learn.rocketmq.remoting.protocol.header.GetMaxOffsetResponseHea
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetMinOffsetRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetMinOffsetResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetProducerConnectionListRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetSubscriptionGroupConfigRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetTopicConfigRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.GetTopicStatsInfoRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetTopicsByClusterRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.GetUserRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.HeartbeatRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ListAclsRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ListUsersRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.LockBatchMqRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.PopMessageRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.PopMessageResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.PullMessageRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.PullMessageResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryConsumeQueueRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryConsumeTimeSpanRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryConsumerOffsetRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.QueryConsumerOffsetResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryCorrectionOffsetHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.QueryMessageRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QuerySubscriptionByConsumerRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryTopicConsumeByWhoRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.QueryTopicsByConsumerRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.RemoveBrokerRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ResetMasterFlushOffsetHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ResetOffsetRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ResumeCheckHalfMessageRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.SearchOffsetRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.SearchOffsetResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.SendMessageRequestHeader;
@@ -127,18 +184,35 @@ import com.mawen.learn.rocketmq.remoting.protocol.header.SendMessageRequestHeade
 import com.mawen.learn.rocketmq.remoting.protocol.header.SendMessageResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.UnlockBatchMqRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.UnregisterClientRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.UpdateAclRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.UpdateConsumerOffsetRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.UpdateGlobalWhiteAddrConfigRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.UpdateGroupForbiddenRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.UpdateUserRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ViewBrokerStatsDataRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.ViewMessageRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.controller.ElectMasterRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.controller.ElectMasterResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.controller.GetMetadataResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.controller.admin.CleanControllerBrokerDataRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.AddWritePermOfBrokerRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.AddWritePermOfBrokerResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.DeleteKVConfigRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.DeleteTopicFromNamesrvRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.GetKVConfigRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.GetKVConfigResponseHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.GetKVListByNamespaceRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.GetRouteInfoRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.PutKVConfigRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.WipeWritePermOfBrokerResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.namesrv.WipeWriterPermOfBrokerRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.HeartbeatData;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.MessageModel;
+import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 import com.mawen.learn.rocketmq.remoting.protocol.route.TopicRouteData;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicConfigAndQueueMapping;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingDetail;
+import com.mawen.learn.rocketmq.remoting.protocol.subscription.GroupForbidden;
 import com.mawen.learn.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 import com.mawen.learn.rocketmq.remoting.rpchook.DynamicalExtFieldRPCHook;
 import com.mawen.learn.rocketmq.remoting.rpchook.StreamTypeRPCHook;
@@ -179,7 +253,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		this.topAddressing.registerChangeCallback(this);
 		this.remotingClient = new NettyRemotingClient(nettyClientConfig, channelEventListener);
 		this.clientRemotingProcessor = clientRemotingProcessor;
-		this.remotingClient.registerRPCHook(new NamespaceHook(clientConfig));
+		this.remotingClient.registerRPCHook(new NamespaceRpcHook(clientConfig));
 
 		if (clientConfig.isEnableStreamRequestType()) {
 			this.remotingClient.registerRPCHook(new StreamTypeRPCHook());
@@ -410,13 +484,13 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQClientException(response.getCode(), response.getRemark());
 	}
 
-	public SendResult sendMessage(final String addr, final String brokerName, final Message msg, final SendMessageRequestHeader requestHeader, final long timeoutMillis, final CommunicationMode communicationMode, final SendMessageContext context, final DefaultMQProducerImpl producer) {
+	public SendResult sendMessage(final String addr, final String brokerName, final Message msg, final SendMessageRequestHeader requestHeader, final long timeoutMillis, final CommunicationMode communicationMode, final SendMessageContext context, final DefaultMQProducerImpl producer) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException, RemotingCommandException, MQBrokerException {
 		return sendMessage(addr, brokerName, msg, requestHeader, timeoutMillis, communicationMode, null, null, null, 0, context, producer);
 	}
 
 	public SendResult sendMessage(final String addr, final String brokerName, final Message msg, final SendMessageRequestHeader requestHeader, final long timeoutMillis,
 			final CommunicationMode communicationMode, final SendCallback sendCallback, final TopicPublishInfo topicPublishInfo, final MQClientInstance instance,
-			final int retryTimesWhenSendFailed, final SendMessageContext context, final DefaultMQProducerImpl producer) throws RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+			final int retryTimesWhenSendFailed, final SendMessageContext context, final DefaultMQProducerImpl producer) throws RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		long beginStartTime = System.currentTimeMillis();
 
 		RemotingCommand request = null;
@@ -452,7 +526,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 				if (timeoutMillis < costTimeAsync) {
 					throw new RemotingTooMuchRequestException("sendMessage call timeout");
 				}
-				this.sendMessageAsync(addr, beginStartTime, msg, timeoutMillis - costTimeAsync, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, context, producer);
+				this.sendMessageAsync(addr, brokerName, msg, timeoutMillis - costTimeAsync, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, context, producer);
 				return null;
 			case SYNC:
 				long costTimeSync = System.currentTimeMillis() - beginStartTime;
@@ -468,7 +542,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		return null;
 	}
 
-	private SendResult sendMessageSync(final String addr, final String brokerName, final Message msg, final long timeoutMillis, final RemotingCommand request) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+	private SendResult sendMessageSync(final String addr, final String brokerName, final Message msg, final long timeoutMillis, final RemotingCommand request) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
 		assert response != null;
 		return this.processSendResponse(brokerName, msg, response, addr);
@@ -497,7 +571,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 					long cost = System.currentTimeMillis() - beginStartTime;
 					if (sendCallback == null) {
 						try {
-							SendResult sendResult = MQClientAPIImpl.this.processSendResponse(beginStartTime, msg, response, addr);
+							SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
 							if (context != null && sendResult != null) {
 								context.setSendResult(sendResult);
 								context.getProducer().executeSendMessageHookAfter(context);
@@ -544,14 +618,14 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 					else {
 						ex = new MQClientException("unknown reason", throwable);
 					}
-					opExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, ex, context, true, producer);
+					onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, ex, context, true, producer);
 				}
 			});
 		}
 		catch (Exception e) {
 			long cost = System.currentTimeMillis() - beginStartTime;
 			producer.updateFaultItem(brokerName, cost, true, false);
-			onExceptionImpl(beginStartTime, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, timeoutMillis, e, context, true, producer);
+			onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, timeoutMillis, e, context, true, producer);
 		}
 	}
 
@@ -722,7 +796,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(), responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody(), responseHeader.getOffsetDelta());
 	}
 
-	public void popMessageExt(final String brokerName, final String addr, final PopMessageRequestHeader requestHeader, final long timeoutMillis, final PopCallback popCallback) {
+	public void popMessageExt(final String brokerName, final String addr, final PopMessageRequestHeader requestHeader, final long timeoutMillis, final PopCallback popCallback) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.POP_MESSAGE, requestHeader);
 
 		this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
@@ -749,14 +823,14 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		});
 	}
 
-	private PopResult processPopMessage(final String brokerName, final RemotingCommand response, String topic, CommandCustomHeader requestHeader) {
+	private PopResult processPopMessage(final String brokerName, final RemotingCommand response, String topic, CommandCustomHeader requestHeader) throws MQBrokerException, RemotingCommandException {
 		PopStatus popStatus = PopStatus.NO_NEW_MSG;
 		List<MessageExt> msgFoundList = null;
 		switch (response.getCode()) {
 			case ResponseCode.SUCCESS:
 				popStatus = PopStatus.FOUND;
 				ByteBuffer buffer = ByteBuffer.wrap(response.getBody());
-				msgFoundList = MessageDecoder.decodesBatch(buffer, clientConfig.isDecodeReadBody(), clientConfig.isDecodeDecompressBody(), true);
+				msgFoundList = MessageDecoder.decodeBatch(buffer, clientConfig.isDecodeReadBody(), clientConfig.isDecodeDecompressBody(), true);
 				break;
 			case ResponseCode.POLLING_FULL:
 				popStatus = PopStatus.POLLING_FULL;
@@ -906,7 +980,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public long searchOffset(final String addr, final String topic, final int queueId, final long timestamp, final long timeoutMillis) {
+	public long searchOffset(final String addr, final String topic, final int queueId, final long timestamp, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		SearchOffsetRequestHeader requestHeader = new SearchOffsetRequestHeader();
 		requestHeader.setTopic(topic);
 		requestHeader.setQueueId(queueId);
@@ -928,17 +1002,17 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public long searchOffset(final String addr, final MessageQueue messageQueue, final long timestamp, final long timeoutMillis) {
+	public long searchOffset(final String addr, final MessageQueue messageQueue, final long timestamp, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException {
 		return searchOffset(addr, messageQueue, timestamp, BoundaryType.LOWER, timeoutMillis);
 	}
 
-	public long searchOffset(final String addr, final MessageQueue messageQueue, final long timestamp, final BoundaryType boundaryType, final long timeoutMillis) {
+	public long searchOffset(final String addr, final MessageQueue messageQueue, final long timestamp, final BoundaryType boundaryType, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		SearchOffsetRequestHeader requestHeader = new SearchOffsetRequestHeader();
 		requestHeader.setTopic(messageQueue.getTopic());
 		requestHeader.setQueueId(messageQueue.getQueueId());
 		requestHeader.setBrokerName(messageQueue.getBrokerName());
 		requestHeader.setTimestamp(timestamp);
-		requestHeader.setBrokerName(boundaryType);
+		requestHeader.setBoundaryType(boundaryType);
 
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.SEARCH_OFFSET_BY_TIMESTAMP, requestHeader);
 
@@ -956,7 +1030,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public long getMaxOffset(final String addr, final MessageQueue messageQueue, final long timeoutMillis) {
+	public long getMaxOffset(final String addr, final MessageQueue messageQueue, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		GetMaxOffsetRequestHeader requestHeader = new GetMaxOffsetRequestHeader();
 		requestHeader.setTopic(messageQueue.getTopic());
 		requestHeader.setQueueId(messageQueue.getQueueId());
@@ -978,7 +1052,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), request.getRemark(), addr);
 	}
 
-	public long getMinOffset(final String addr, final MessageQueue messageQueue, final long timeoutMillis) {
+	public long getMinOffset(final String addr, final MessageQueue messageQueue, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		GetMinOffsetRequestHeader requestHeader = new GetMinOffsetRequestHeader();
 		requestHeader.setTopic(messageQueue.getTopic());
 		requestHeader.setQueueId(messageQueue.getQueueId());
@@ -1000,7 +1074,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public List<String> getConsumerIdListByGroup(final String addr, final String consumerGroup, final long timeoutMillis) {
+	public List<String> getConsumerIdListByGroup(final String addr, final String consumerGroup, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		GetConsumerListByGroupRequestHeader requestHeader = new GetConsumerListByGroupRequestHeader();
 		requestHeader.setConsumerGroup(consumerGroup);
 
@@ -1022,7 +1096,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public long getEarliestMsgStoretime(final String addr, final MessageQueue messageQueue, final long timeoutMillis) {
+	public long getEarliestMsgStoretime(final String addr, final MessageQueue messageQueue, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		GetEarliestMsgStoretimeRequestHeader requestHeader = new GetEarliestMsgStoretimeRequestHeader();
 		requestHeader.setTopic(messageQueue.getTopic());
 		requestHeader.setQueueId(messageQueue.getQueueId());
@@ -1044,10 +1118,10 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public long queryConsumerOffset(final String addr, final QueryConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) {
+	public long queryConsumerOffset(final String addr, final QueryConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException, MQBrokerException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_CONSUMER_OFFSET, requestHeader);
 
-		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr));
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
 
 		assert response != null;
 		switch (response.getCode()) {
@@ -1063,10 +1137,10 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), request.getRemark(), addr);
 	}
 
-	public void updateConsumerOffset(final String addr, final UpdateConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) {
+	public void updateConsumerOffset(final String addr, final UpdateConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_CONSUMER_OFFSET, requestHeader);
 
-		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled()), addr, timeoutMillis);
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
 		assert response != null;
 		switch (response.getCode()) {
 			case ResponseCode.SUCCESS:
@@ -1078,13 +1152,13 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public void updateConsumerOffsetOneway(final String addr, final UpdateConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) {
+	public void updateConsumerOffsetOneway(final String addr, final UpdateConsumerOffsetRequestHeader requestHeader, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_CONSUMER_OFFSET, requestHeader);
 
 		this.remotingClient.invokeOneway(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
 	}
 
-	public int sendHeartbeat(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) {
+	public int sendHeartbeat(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, new HeartbeatRequestHeader());
 		request.setLanguage(clientConfig.getLanguage());
 		request.setBody(heartbeatData.encode());
@@ -1102,7 +1176,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public HeartbeatV2Result sendHeartbeatV2(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) {
+	public HeartbeatV2Result sendHeartbeatV2(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, new HeartbeatRequestHeader());
 
 		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
@@ -1121,7 +1195,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark());
 	}
 
-	public void unregisterClient(final String addr, final String clientID, final String producerGroup, final String consumerGroup, final long timeoutMillis) {
+	public void unregisterClient(final String addr, final String clientID, final String producerGroup, final String consumerGroup, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		UnregisterClientRequestHeader requestHeader = new UnregisterClientRequestHeader();
 		requestHeader.setClientID(clientID);
 		requestHeader.setProducerGroup(producerGroup);
@@ -1139,34 +1213,33 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 				break;
 		}
 
-		throw new MQClientException(response.getCode(), response.getRemark(), addr);
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public void endTransactionOneway(final String addr, final EndTransactionRequestHeader requestHeader, final String remakr, final long timeoutMillis) {
+	public void endTransactionOneway(final String addr, final EndTransactionRequestHeader requestHeader, final String remakr, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.END_TRANSACTION, requestHeader);
 		request.setRemark(remakr);
 
 		this.remotingClient.invokeOneway(addr, request, timeoutMillis);
 	}
 
-	public void queryMessage(final String addr, final QueryMessageRequestHeader requestHeader, final long timeoutMillis, final InvokeCallback invokeCallback, final Boolean isUnqiueKey) {
+	public void queryMessage(final String addr, final QueryMessageRequestHeader requestHeader, final long timeoutMillis, final InvokeCallback invokeCallback, final Boolean isUnqiueKey) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_MESSAGE, requestHeader);
 		request.addExtField(MixAll.UNIQUE_MSG_QUERY_FLAG, isUnqiueKey.toString());
 
 		this.remotingClient.invokeAsync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis, invokeCallback);
 	}
 
-	public boolean registerClient(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) {
+	public boolean registerClient(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, new HeartbeatRequestHeader());
 		request.setBody(heartbeatData.encode());
 
 		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
 
-		return;
-		response.getCode() == ResponseCode.SUCCESS;
+		return response.getCode() == ResponseCode.SUCCESS;
 	}
 
-	public void consumeSendMessageBack(final String addr, final String brokerName, final MessageExt msg, final String consumerGroup, final int delayLevel, final long timeoutLevel, final long maxConsumeRetryTimes) {
+	public void consumeSendMessageBack(final String addr, final String brokerName, final MessageExt msg, final String consumerGroup, final int delayLevel, final long timeoutLevel, final int maxConsumeRetryTimes) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		ConsumerSendMsgBackRequestHeader requestHeader = new ConsumerSendMsgBackRequestHeader();
 		requestHeader.setGroup(consumerGroup);
 		requestHeader.setOriginTopic(msg.getTopic());
@@ -1188,10 +1261,10 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 				break;
 		}
 
-		throw new MQClientException(response.getCode(), response.getRemark(), addr);
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public Set<MessageQueue> lockBatchMQ(final String addr, final LockBatchRequestBody requestBody, final long timeoutMillis) {
+	public Set<MessageQueue> lockBatchMQ(final String addr, final LockBatchRequestBody requestBody, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.LOCK_BATCH_MQ, new LockBatchMqRequestHeader());
 		request.setBody(requestBody.encode());
 
@@ -1209,7 +1282,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public void unlockBatchMQ(final String addr, final UnlockBatchRequestBody requestBody, final long timeoutMillis, final boolean oneway) {
+	public void unlockBatchMQ(final String addr, final UnlockBatchRequestBody requestBody, final long timeoutMillis, final boolean oneway) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException, MQBrokerException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UNLOCK_BATCH_MQ, new UnlockBatchMqRequestHeader());
 		request.setBody(requestBody.encode());
 
@@ -1225,11 +1298,11 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 					break;
 			}
 
-			throw new MQClientException(response.getCode(), response.getRemark(), addr);
+			throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 		}
 	}
 
-	public TopicStatsTable getTopicStatsInfo(final String addr, final String topic, final long timeoutMillis) {
+	public TopicStatsTable getTopicStatsInfo(final String addr, final String topic, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		GetTopicStatsInfoRequestHeader requestHeader = new GetTopicStatsInfoRequestHeader();
 		requestHeader.setTopic(topic);
 
@@ -1248,11 +1321,11 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public ConsumeStats getConsumeStats(final String addr, final String consumerGroup, final long timeoutMillis) {
+	public ConsumeStats getConsumeStats(final String addr, final String consumerGroup, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException {
 		return getConsumeStats(addr, consumerGroup, null, timeoutMillis);
 	}
 
-	public ConsumeStats getConsumeStats(final String addr, final String consumerGroup, final String topic, final long timeoutMillis) {
+	public ConsumeStats getConsumeStats(final String addr, final String consumerGroup, final String topic, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		GetConsumerStatsRequestHeader requestHeader = new GetConsumerStatsRequestHeader();
 		requestHeader.setConsumerGroup(consumerGroup);
 		requestHeader.setTopic(topic);
@@ -1271,7 +1344,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public ProducerConnection getProducerConnectionList(final String addr, final String producerGroup, final long timeoutMillis) {
+	public ProducerConnection getProducerConnectionList(final String addr, final String producerGroup, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
 		GetProducerConnectionListRequestHeader requestHeader = new GetProducerConnectionListRequestHeader();
 		requestHeader.setProducerGroup(producerGroup);
 
@@ -1290,7 +1363,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public ProducerTableInfo getAllProducerInfo(final String addr, final long timeoutMillis) {
+	public ProducerTableInfo getAllProducerInfo(final String addr, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		GetAllProducerInfoRequestHeader requestHeader = new GetAllProducerInfoRequestHeader();
 
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ALL_PRODUCER_INFO, requestHeader);
@@ -1307,7 +1380,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public ConsumerConnection getConsumerConnection(final String addr, final String consumerGroup, final lnog timeoutMillis) {
+	public ConsumerConnection getConsumerConnection(final String addr, final String consumerGroup, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		GetConsumerConnectionListRequestHeader requestHeader = new GetConsumerConnectionListRequestHeader();
 		requestHeader.setConsumerGroup(consumerGroup);
 
@@ -1325,7 +1398,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public KVTable getBrokerRuntimeInfo(final String addr, final long timeoutMillis) {
+	public KVTable getBrokerRuntimeInfo(final String addr, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_BROKER_RUNTIME_INFO, null);
 
 		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
@@ -1340,7 +1413,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
-	public void addBroker(final String addr, final String brokerConfigPath, final long timeoutMillis) {
+	public void addBroker(final String addr, final String brokerConfigPath, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		AddBrokerRequestHeader requestHeader = new AddBrokerRequestHeader();
 		requestHeader.setConfigPath(brokerConfigPath);
 
@@ -1359,7 +1432,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark());
 	}
 
-	public void removeBroker(final String addr, final String clusterName, String brokerName, long brokerId, final long timeoutMillis) {
+	public void removeBroker(final String addr, final String clusterName, String brokerName, long brokerId, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		RemoveBrokerRequestHeader requestHeader = new RemoveBrokerRequestHeader();
 		requestHeader.setBrokerClusterName(clusterName);
 		requestHeader.setBrokerName(brokerName);
@@ -1380,7 +1453,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark());
 	}
 
-	public void updateBrokerConfig(final String addr, final Properties properties, final long timeoutMillis) {
+	public void updateBrokerConfig(final String addr, final Properties properties, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, UnsupportedEncodingException {
 		Validators.checkBrokerConfig(properties);
 
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_BROKER_CONFIG, null);
@@ -1402,7 +1475,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		}
 	}
 
-	public Properties getBrokerConfig(final String addr, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
+	public Properties getBrokerConfig(final String addr, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException, UnsupportedEncodingException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_BROKER_CONFIG, null);
 
 		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
@@ -1410,7 +1483,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		assert response != null;
 		switch (response.getCode()) {
 			case ResponseCode.SUCCESS:
-				return MixAll.string2Properties(response.getBody(), MixAll.DEFAULT_CHARSET);
+				return MixAll.string2Properties(new String(response.getBody(), MixAll.DEFAULT_CHARSET));
 			default:
 				break;
 		}
@@ -1667,7 +1740,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQClientException(response.getCode(), response.getRemark());
 	}
 
-	public void deleteSubscriptionGroup(final String addr, final String groupName, final boolean removeOffset, final long timeoutMillis) {
+	public void deleteSubscriptionGroup(final String addr, final String groupName, final boolean removeOffset, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
 		DeleteSubscriptionGroupRequestHeader requestHeader = new DeleteSubscriptionGroupRequestHeader();
 		requestHeader.setGroupName(groupName);
 		requestHeader.setCleanOffset(removeOffset);
@@ -1681,10 +1754,1222 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 			case ResponseCode.SUCCESS:
 				return;
 			default:
-				return;
+				break;
 		}
 
 		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public String getKVConfigValue(final String namespace, final String key, final long timeoutMillis) throws RemotingCommandException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQClientException {
+		GetKVConfigRequestHeader requestHeader = new GetKVConfigRequestHeader();
+		requestHeader.setNamespace(namespace);
+		requestHeader.setKey(key);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_KV_CONFIG, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				GetKVConfigResponseHeader responseHeader = response.decodeCommandCustomHeader(GetKVConfigResponseHeader.class);
+				return responseHeader.getValue();
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public void putKVConfigValue(final String namespace, final String key, final String value, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		PutKVConfigRequestHeader requestHeader = new PutKVConfigRequestHeader();
+		requestHeader.setNamespace(namespace);
+		requestHeader.setKey(key);
+		requestHeader.setValue(value);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.PUT_KV_CONFIG, requestHeader);
+
+		List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
+		if (nameServerAddressList != null) {
+			RemotingCommand errResponse = null;
+			for (String namesrvAddr : nameServerAddressList) {
+				RemotingCommand response = this.remotingClient.invokeSync(namesrvAddr, request, timeoutMillis);
+
+				assert response != null;
+				switch (response.getCode()) {
+					case ResponseCode.SUCCESS:
+						break;
+					default:
+						errResponse = response;
+				}
+			}
+
+			if (errResponse != null) {
+				throw new MQClientException(errResponse.getCode(), errResponse.getRemark());
+			}
+		}
+	}
+
+	public void deleteKVConfigValue(final String namespace, final String key, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		DeleteKVConfigRequestHeader requestHeader = new DeleteKVConfigRequestHeader();
+		requestHeader.setNamespace(namespace);
+		requestHeader.setKey(key);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.DELETE_KV_CONFIG, requestHeader);
+
+		List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
+		if (nameServerAddressList != null) {
+			RemotingCommand errResponse = null;
+			for (String namesrvAddr : nameServerAddressList) {
+				RemotingCommand response = this.remotingClient.invokeSync(namesrvAddr, request, timeoutMillis);
+
+				assert response != null;
+				switch (response.getCode()) {
+					case ResponseCode.SUCCESS:
+						break;
+					default:
+						errResponse = response;
+				}
+			}
+
+			if (errResponse != null) {
+				throw new MQClientException(errResponse.getCode(), errResponse.getRemark());
+			}
+		}
+	}
+
+	public KVTable getKVListByNamespace(final String namespace, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetKVListByNamespaceRequestHeader requestHeader = new GetKVListByNamespaceRequestHeader();
+		requestHeader.setNamespace(namespace);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_KVLIST_BY_NAMESPACE, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return KVTable.decode(response.getBody(), KVTable.class);
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public Map<MessageQueue, Long> invokeBrokerToResetOffset(final String addr, final String topic, final String group, final long timestamp, final boolean isForce, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQClientException {
+		return invokeBrokerToResetOffset(addr, topic, group, timestamp, isForce, timeoutMillis, false);
+	}
+
+	public Map<MessageQueue, Long> invokeBrokerToResetOffset(final String addr, final String topic, final String group, final long timestamp, int queueId, Long offset, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ResetOffsetRequestHeader requestHeader = new ResetOffsetRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setGroup(group);
+		requestHeader.setQueueId(queueId);
+		requestHeader.setTimestamp(timestamp);
+		requestHeader.setOffset(offset);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.INVOKE_BROKER_TO_RESET_OFFSET, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return ResetOffsetBody.decode(response.getBody(), ResetOffsetBody.class).getOffsetTable();
+				}
+				break;
+			case ResponseCode.TOPIC_NOT_EXIST:
+			case ResponseCode.SUBSCRIPTION_NOT_EXIST:
+			case ResponseCode.SYSTEM_ERROR:
+				log.warn("Invoke broker to reset offset error code={}, remark={}", response.getCode(), response.getRemark());
+				break;
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public Map<MessageQueue, Long> invokeBrokerToResetOffset(final String addr, final String topic, final String group, final long timestamp, final boolean isForce, final long timeoutMillis, boolean isC) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ResetOffsetRequestHeader requestHeader = new ResetOffsetRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setGroup(group);
+		requestHeader.setTimestamp(timestamp);
+		requestHeader.setForce(isForce);
+		requestHeader.setOffset(-1L);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.INVOKE_BROKER_TO_RESET_OFFSET, requestHeader);
+		if (isC) {
+			request.setLanguage(LanguageCode.CPP);
+		}
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					ResetOffsetBody body = ResetOffsetBody.decode(response.getBody(), ResetOffsetBody.class);
+					return body.getOffsetTable();
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public Map<String, Map<MessageQueue, Long>> invokeBrokerToGetConsumerStatus(final String addr, final String topic, final String grop, final String clientAddr, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetConsumerStatusRequestHeader requestHeader = new GetConsumerStatusRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setGroup(grop);
+		requestHeader.setClientAddr(clientAddr);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.INVOKE_BROKER_TO_GET_CONSUMER_STATUS, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (request.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					GetConsumerStatusBody body = GetConsumerStatusBody.decode(response.getBody(), GetConsumerStatusBody.class);
+					return body.getConsumerTable();
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public GroupList queryTopicConsumeByWho(final String addr, final String topic, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		QueryTopicConsumeByWhoRequestHeader requestHeader = new QueryTopicConsumeByWhoRequestHeader();
+		requestHeader.setTopic(topic);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_TOPIC_CONSUME_BY_WHO, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return GroupList.decode(response.getBody(), GroupList.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public TopicList queryTopicsByConsumer(final String addr, final String group, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		QueryTopicsByConsumerRequestHeader requestHeader = new QueryTopicsByConsumerRequestHeader();
+		requestHeader.setGroup(group);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_TOPICS_BY_CONSUMER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return TopicList.decode(response.getBody(), TopicList.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public SubscriptionData querySubscriptionByConsumer(final String addr, final String group, final String topic, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		QuerySubscriptionByConsumerRequestHeader requestHeader = new QuerySubscriptionByConsumerRequestHeader();
+		requestHeader.setGroup(group);
+		requestHeader.setTopic(topic);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_SUBSCRIPTION_BY_CONSUMER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return QuerySubscriptionResponseBody.decode(response.getBody(), QuerySubscriptionResponseBody.class).getSubscriptionData();
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public List<QueueTimeSpan> queryConsumeTimeSpan(final String addr, final String topic, final String group, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
+		QueryConsumeTimeSpanRequestHeader requestHeader = new QueryConsumeTimeSpanRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setGroup(group);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_CONSUME_TIME_SPAN, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return QueryConsumeTimeSpanBody.decode(response.getBody(), QueryConsumeTimeSpanBody.class).getConsumeTimeSpanSet();
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public TopicList getTopicsByCluster(final String cluster, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetTopicsByClusterRequestHeader requestHeader = new GetTopicsByClusterRequestHeader();
+		requestHeader.setCluster(cluster);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_TOPICS_BY_CLUSTER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return TopicList.decode(response.getBody(), TopicList.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public TopicList getSystemTopicList(final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_SYSTEM_TOPIC_LIST_FROM_NS, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					TopicList topicList = TopicList.decode(response.getBody(), TopicList.class);
+					if (topicList.getTopicList() != null && !topicList.getTopicList().isEmpty() && UtilAll.isBlank(topicList.getBrokerAddr())) {
+						TopicList tmp = getSystemTopicListFromBroker(topicList.getBrokerAddr(), timeoutMillis);
+						if (tmp.getTopicList() != null && !tmp.getTopicList().isEmpty()) {
+							topicList.getTopicList().addAll(tmp.getTopicList());
+						}
+					}
+
+					return topicList;
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public TopicList getSystemTopicListFromBroker(final String addr, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_SYSTEM_TOPIC_LIST_FROM_BROKER, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return TopicList.decode(response.getBody(), TopicList.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public boolean cleanExpiredConsumeQueue(final String addr, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CLEAN_EXPIRED_CONSUMEQUEUE, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return true;
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public boolean deleteExpiredCommitLog(final String addr, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.DELETE_EXPIRED_COMMITLOG, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return true;
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public boolean cleanUnusedTopicByAddr(final String addr, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CLEAN_UNUSED_TOPIC, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return true;
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public ConsumerRunningInfo getConsumerRunningInfo(final String addr, final String consumerGroup, final String clientId, final boolean jstack, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetConsumerRunningInfoRequestHeader requestHeader = new GetConsumerRunningInfoRequestHeader();
+		requestHeader.setConsumerGroup(consumerGroup);
+		requestHeader.setClientId(clientId);
+		requestHeader.setJstackEnable(jstack);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_CONSUMER_RUNNING_INFO, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return ConsumerRunningInfo.decode(response.getBody(), ConsumerRunningInfo.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public ConsumeMessageDirectlyResult consumeMessageDirectly(final String addr, final String consumerGroup, final String clientId, final String topic, final String msgId, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ConsumeMessageDirectlyResultRequestHeader requestHeader = new ConsumeMessageDirectlyResultRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setConsumerGroup(consumerGroup);
+		requestHeader.setClientId(clientId);
+		requestHeader.setMsgId(msgId);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CONSUME_MESSAGE_DIRECTLY, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return ConsumeMessageDirectlyResult.decode(response.getBody(), ConsumeMessageDirectlyResult.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public Map<Integer, Long> queryCorrectionOffset(final String addr, final String topic, final String group, Set<String> filterGroup, long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		QueryCorrectionOffsetHeader requestHeader = new QueryCorrectionOffsetHeader();
+		requestHeader.setCompareGroup(group);
+		requestHeader.setTopic(topic);
+		if (filterGroup != null) {
+			StringBuilder sb = new StringBuilder();
+			String splitor = "";
+			for (String s : filterGroup) {
+				sb.append(s).append(splitor);
+				splitor = ",";
+			}
+			requestHeader.setFilterGroups(sb.toString());
+		}
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_CORRECTION_OFFSET, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return QueryCorrectionOffsetBody.decode(response.getBody(), QueryCorrectionOffsetBody.class).getCorrectionOffsets();
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public TopicList getUnitTopicList(final boolean containRetry, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_UNIT_TOPIC_LIST, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					TopicList topicList = TopicList.decode(response.getBody(), TopicList.class);
+					if (!containRetry) {
+						Iterator<String> iterator = topicList.getTopicList().iterator();
+						while (iterator.hasNext()) {
+							String topic = iterator.next();
+							if (topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+								iterator.remove();
+							}
+						}
+					}
+
+					return topicList;
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public TopicList getHasUnitSubTopicList(final boolean containRetry, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_HAS_UNIT_SUB_TOPIC_LIST, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					TopicList topicList = TopicList.decode(response.getBody(), TopicList.class);
+					if (!containRetry) {
+						Iterator<String> iterator = topicList.getTopicList().iterator();
+						while (iterator.hasNext()) {
+							String topic = iterator.next();
+							if (topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+								iterator.remove();
+							}
+						}
+					}
+					return topicList;
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public TopicList getHasUnitSubUnUnitTopicList(final boolean containRetry, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_HAS_UNIT_SUB_UNUNIT_TOPIC_LIST, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					TopicList topicList = TopicList.decode(response.getBody(), TopicList.class);
+					if (!containRetry) {
+						Iterator<String> iterator = topicList.getTopicList().iterator();
+						while (iterator.hasNext()) {
+							String topic = iterator.next();
+							if (topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+								iterator.remove();
+							}
+						}
+					}
+					return topicList;
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public void cloneGroupOFfset(final String addr, final String srcGroup, final String destGroup, final String topic, final boolean isOffline, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		CloneGroupOffsetRequestHeader requestHeader = new CloneGroupOffsetRequestHeader();
+		requestHeader.setSrcGroup(srcGroup);
+		requestHeader.setDestGroup(destGroup);
+		requestHeader.setTopic(topic);
+		requestHeader.setOffline(isOffline);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CLONE_GROUP_OFFSET, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public BrokerStatsData viewBrokerStatsData(final String brokerAddr, final String statsName, final String statsKey, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ViewBrokerStatsDataRequestHeader requestHeader = new ViewBrokerStatsDataRequestHeader();
+		requestHeader.setStatsKey(statsKey);
+		requestHeader.setStatsName(statsName);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.VIEW_BROKER_STATS_DATA, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), brokerAddr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return BrokerStatsData.decode(response.getBody(), BrokerStatsData.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public Collection<String> getClusterList(String topic, long timeoutMillis) {
+		return Collections.EMPTY_SET;
+	}
+
+	public ConsumeStatsList fetchConsumeStatsInBroker(final String addr, final boolean isOrder, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetConsumerStatsInBrokerHeader requestHeader = new GetConsumerStatsInBrokerHeader();
+		requestHeader.setOrder(isOrder);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_BROKER_CONSUME_STATS, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				if (response.getBody() != null) {
+					return ConsumeStatsList.decode(response.getBody(), ConsumeStatsList.class);
+				}
+			default:
+				break;
+		}
+
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public SubscriptionGroupWrapper getAllSubscriptionGroup(final String addr, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ALL_SUBSCRIPTIONGROUP_CONFIG, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return SubscriptionGroupWrapper.decode(response.getBody(), SubscriptionGroupWrapper.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public SubscriptionGroupConfig getSubscriptionGroupConfig(final String addr, final String group, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetSubscriptionGroupConfigRequestHeader requestHeader = new GetSubscriptionGroupConfigRequestHeader();
+		requestHeader.setGroup(group);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_SUBSCRIPTIONGROUP_CONFIG, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), SubscriptionGroupConfig.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public TopicConfigSerializeWrapper getAllTopicConfig(final String addr, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ALL_TOPIC_CONFIG, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), TopicConfigSerializeWrapper.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), request.getRemark(), addr);
+	}
+
+	public void upateNameServerConfig(final Properties properties, final List<String> nameServers, final long timeoutMillis) throws UnsupportedEncodingException, MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		String str = MixAll.properties2String(properties);
+		if (str == null || str.length() < 1) {
+			return;
+		}
+
+		List<String> invokeNameServers = nameServers == null || nameServers.isEmpty() ? this.remotingClient.getNameServerAddressList() : nameServers;
+		if (invokeNameServers == null || invokeNameServers.isEmpty()) {
+			return;
+		}
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_NAMESRV_CONFIG, null);
+		request.setBody(str.getBytes(MixAll.DEFAULT_CHARSET));
+
+		RemotingCommand errResponse = null;
+		for (String nameServer : invokeNameServers) {
+			RemotingCommand response = this.remotingClient.invokeSync(namesrvAddr, request, timeoutMillis);
+
+			assert response != null;
+			switch (response.getCode()) {
+				case ResponseCode.SUCCESS:
+					break;
+				default:
+					errResponse = response;
+			}
+		}
+
+		if (errResponse != null) {
+			throw new MQClientException(errResponse.getCode(), errResponse.getRemark());
+		}
+	}
+
+	public Map<String, Properties> getNameServerConfig(final List<String> nameServers, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, UnsupportedEncodingException {
+		List<String> invokedNameServers = nameServers == null || nameServers.isEmpty() ? this.remotingClient.getNameServerAddressList() : nameServers;
+		if (invokedNameServers == null || invokedNameServers.isEmpty()) {
+			return null;
+		}
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_NAMESRV_CONFIG, null);
+
+		Map<String, Properties> configMap = new HashMap<>(4);
+		for (String nameServer : invokedNameServers) {
+			RemotingCommand response = this.remotingClient.invokeSync(nameServer, request, timeoutMillis);
+
+			assert response != null;
+			if (ResponseCode.SUCCESS == response.getCode()) {
+				configMap.put(nameServer, MixAll.string2Properties(new String(response.getBody(), MixAll.DEFAULT_CHARSET)));
+			}
+			else {
+				throw new MQClientException(response.getCode(), response.getRemark());
+			}
+		}
+
+		return configMap;
+	}
+
+	public QueryConsumeQueueResponseBody queryConsumeQueue(final String addr, final String topic, final int queueId, final long index, final int count, final String consumerGroup, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		QueryConsumeQueueRequestHeader requestHeader = new QueryConsumeQueueRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setQueueId(queueId);
+		requestHeader.setIndex(index);
+		requestHeader.setCount(count);
+		requestHeader.setConsumerGroup(consumerGroup);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.QUERY_CONSUME_QUEUE, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		if (ResponseCode.SUCCESS == response.getCode()) {
+			return QueryConsumeQueueResponseBody.decode(response.getBody(), QueryConsumeQueueResponseBody.class);
+		}
+		throw new MQClientException(response.getCode(), response.getRemark());
+	}
+
+	public void checkClientInBroker(final String addr, final String consumerGroup, final String clientId, final SubscriptionData subscriptionData, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CHECK_CLIENT_CONFIG, null);
+
+		CheckClientRequestBody requestBody = new CheckClientRequestBody();
+		requestBody.setClientId(clientId);
+		requestBody.setGroup(consumerGroup);
+		requestBody.setSubscriptionData(subscriptionData);
+
+		request.setBody(requestBody.encode());
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		if (ResponseCode.SUCCESS != response.getCode()) {
+			throw new MQClientException(response.getCode(), request.getRemark());
+		}
+	}
+
+	public boolean resumeCheckHalfMessage(final String addr, String topic, String msgId, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ResumeCheckHalfMessageRequestHeader requestHeader = new ResumeCheckHalfMessageRequestHeader();
+		requestHeader.setMsgId(msgId);
+		requestHeader.setTopic(topic);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.RESUME_CHECK_HALF_MESSAGE, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return true;
+			default:
+				log.warn("Failed to resume half message chekc logic. Remark={}", response.getRemark());
+				return false;
+		}
+	}
+
+	public void setMessageRequestMode(final String addr, final String topic, final String consumerGroup, final MessageRequestMode requestMode, final int popShareQueueNum, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.SET_MESSAGE_REQUEST_MODE, null);
+
+		SetMessageRequestModeRequestBody requestBody = new SetMessageRequestModeRequestBody();
+		requestBody.setTopic(topic);
+		requestBody.setConsumerGroup(consumerGroup);
+		requestBody.setMode(requestMode);
+		requestBody.setPopShareQueueNum(popShareQueueNum);
+
+		request.setBody(requestBody.encode());
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		if (ResponseCode.SUCCESS != response.getCode()) {
+			throw new MQClientException(response.getCode(), response.getRemark());
+		}
+	}
+
+	public TopicConfigAndQueueMapping getTopicConfig(final String addr, String topic, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetTopicConfigRequestHeader requestHeader = new GetTopicConfigRequestHeader();
+		requestHeader.setTopic(topic);
+		requestHeader.setLo(true);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_TOPIC_CONFIG, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), TopicConfigAndQueueMapping.class);
+			case ResponseCode.TOPIC_NOT_EXIST:
+				break;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public void createStaticTopic(final String addr, final String defaultTopic, final TopicConfig topicConfig, final TopicQueueMappingDetail topicQueueMappingDetail,
+			boolean force, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		CreateTopicRequestHeader requestHeader = new CreateTopicRequestHeader();
+		requestHeader.setTopic(topicConfig.getTopicName());
+		requestHeader.setDefaultTopic(defaultTopic);
+		requestHeader.setReadQueueNums(topicConfig.getReadQueueNums());
+		requestHeader.setWriteQueueNums(topicConfig.getWriteQueueNums());
+		requestHeader.setPerm(topicConfig.getPerm());
+		requestHeader.setTopicFilterType(topicConfig.getTopicFilterType().name());
+		requestHeader.setTopicSysFlag(topicConfig.getTopicSysFlag());
+		requestHeader.setOrder(topicConfig.isOrder());
+		requestHeader.setForce(force);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_AND_CREATE_STATIC_TOPIC, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public GroupForbidden updateAndgetGroupForbidden(String addr, UpdateGroupForbiddenRequestHeader requestHeader, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_AND_GET_GROUP_FORBIDDEN, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), GroupForbidden.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public void resetMasterFlushOffset(final String addr, final long masterFlushOffset) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ResetMasterFlushOffsetHeader requestHeader = new ResetMasterFlushOffsetHeader();
+		requestHeader.setMasterFlushOffset(masterFlushOffset);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.RESET_MASTER_FLUSH_OFFSET, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, 3000);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public HARuntimeInfo getBrokerHAStatus(final String addr, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_BROKER_HA_STATUS, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), HARuntimeInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public GetMetadataResponseHeader getControllerMetaData(final String controllerAddress) throws RemotingCommandException, MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CONTROLLER_GET_METADATA_INFO, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(controllerAddress, request, 3000);
+
+		assert response != null;
+		if (response.getCode() == ResponseCode.SUCCESS) {
+			return response.decodeCommandCustomHeader(GetMetadataResponseHeader.class);
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public BrokerReplicasInfo getInSyncStateData(final String controllerAddress, final List<String> brokers) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException {
+		GetMetadataResponseHeader controllerMetaData = getControllerMetaData(controllerAddress);
+
+		assert controllerMetaData != null;
+		assert controllerMetaData.getControllerLeaderAddress() != null;
+		String leaderAddress = controllerMetaData.getControllerLeaderAddress();
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CONTROLLER_GET_SYNC_STATE_DATA, null);
+		request.setBody(RemotingSerializable.encode(brokers));
+
+		RemotingCommand response = this.remotingClient.invokeSync(leaderAddress, request, 3000);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), BrokerReplicasInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), leaderAddress);
+	}
+
+	public EpochEntryCache getBrokerEpochCache(String brokerAddr) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_BROKER_EPOCH_CACHE, null);
+
+		RemotingCommand response = this.remotingClient.invokeSync(brokerAddr, request, 3000);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), EpochEntryCache.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), brokerAddr);
+	}
+
+	public Map<String, Properties> getControllerConfig(final List<String> controllerServers, final long timeoutMillis) throws UnsupportedEncodingException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQClientException {
+		List<String> invokeControllerServers = controllerServers == null || controllerServers.isEmpty() ? this.remotingClient.getNameServerAddressList() : controllerServers;
+		if (invokeControllerServers == null || invokeControllerServers.isEmpty()) {
+			return null;
+		}
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_CONTROLLER_CONFIG, null);
+
+		Map<String, Properties> configMap = new HashMap<>(4);
+		for (String controller : invokeControllerServers) {
+			RemotingCommand response = this.remotingClient.invokeSync(controller, request, timeoutMillis);
+
+			assert response != null;
+
+			if (ResponseCode.SUCCESS == response.getCode()) {
+				configMap.put(controller, MixAll.string2Properties(new String(response.getBody(), MixAll.DEFAULT_CHARSET)));
+			}
+			else {
+				throw new MQClientException(response.getCode(), response.getRemark());
+			}
+		}
+
+		return configMap;
+	}
+
+	public void updateControllerConfig(final Properties properties, final List<String> controllers, final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, UnsupportedEncodingException {
+		String str = MixAll.properties2String(properties);
+		if (str.length() < 1 || controllers == null || controllers.isEmpty()) {
+			return;
+		}
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_CONTROLLER_CONFIG, null);
+		request.setBody(str.getBytes(MixAll.DEFAULT_CHARSET));
+
+		RemotingCommand errResp = null;
+		for (String controller : controllers) {
+			RemotingCommand response = this.remotingClient.invokeSync(controller, request, timeoutMillis);
+
+			assert response != null;
+			switch (response.getCode()) {
+				case ResponseCode.SUCCESS:
+					break;
+				default:
+					errResp = response;
+			}
+
+			if (errResp != null) {
+				throw new MQClientException(errResp.getCode(), errResp.getRemark());
+			}
+		}
+	}
+
+	public Pair<ElectMasterResponseHeader, BrokerMemberGroup> electMaster(String controllerAddr, String clusterName, String brokerName, Long brokerId) throws MQBrokerException, RemotingCommandException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetMetadataResponseHeader controllerMetaData = this.getControllerMetaData(controllerAddr);
+		assert controllerMetaData != null;
+		assert controllerMetaData.getControllerLeaderAddress() != null;
+		String leaderAddress = controllerMetaData.getControllerLeaderAddress();
+
+		ElectMasterRequestHeader requestHeader = ElectMasterRequestHeader.ofAdminTrigger(clusterName, brokerName, brokerId);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CONTROLLER_ELECT_MASTER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(leaderAddress, request, 3000);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				BrokerMemberGroup brokerMemberGroup = RemotingSerializable.decode(response.getBody(), BrokerMemberGroup.class);
+				ElectMasterResponseHeader responseHeader = response.decodeCommandCustomHeader(ElectMasterResponseHeader.class);
+				return new Pair<>(responseHeader, brokerMemberGroup);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), leaderAddress);
+	}
+
+	public void cleanControllerBrokerData(String controllerAddr, String clusterName, String brokerName, String brokerControllerIdsToClean, boolean isCleanLivingBroker) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingCommandException {
+		GetMetadataResponseHeader controllerMetaData = this.getControllerMetaData(controllerAddr);
+		assert controllerMetaData != null;
+		assert controllerMetaData.getControllerLeaderAddress() != null;
+		String leaderAddress = controllerMetaData.getControllerLeaderAddress();
+
+		CleanControllerBrokerDataRequestHeader requestHeader = new CleanControllerBrokerDataRequestHeader(clusterName, brokerName, brokerControllerIdsToClean, isCleanLivingBroker);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CLEAN_BROKER_DATA, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(leaderAddress, request, 3000);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), leaderAddress);
+	}
+
+	public void createUser(String addr, UserInfo userInfo, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		CreateUserRequestHeader requestHeader = new CreateUserRequestHeader(userInfo.getUsername());
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_CREATE_USER, requestHeader);
+		request.setBody(RemotingSerializable.encode(userInfo));
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public void updateUser(String addr, UserInfo userInfo, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		UpdateUserRequestHeader requestHeader = new UpdateUserRequestHeader();
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_UPDATE_USER, requestHeader);
+		request.setBody(RemotingSerializable.encode(userInfo));
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public void deleteUser(String addr, String username, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		DeleteUserRequestHeader requestHeader = new DeleteUserRequestHeader();
+		requestHeader.setUsername(username);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_DELETE_USER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public UserInfo getUser(String addr, String username, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetUserRequestHeader requestHeader = new GetUserRequestHeader();
+		requestHeader.setUsername(username);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_GET_USER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), UserInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark());
+	}
+
+	public List<UserInfo> listUser(String addr, String filter, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ListUsersRequestHeader requestHeader = new ListUsersRequestHeader(filter);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_LIST_USER, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decodeList(response.getBody(), UserInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public void createAcl(String addr, AclInfo aclInfo, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		CreateAclRequestHeader requestHeader = new CreateAclRequestHeader(aclInfo.getSubject());
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_CREATE_ACL, requestHeader);
+		request.setBody(RemotingSerializable.encode(aclInfo));
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public void updateAcl(String addr, AclInfo aclInfo, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		UpdateAclRequestHeader requestHeader = new UpdateAclRequestHeader(aclInfo.getSubject());
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_UPDATE_ACL, requestHeader);
+		request.setBody(RemotingSerializable.encode(aclInfo));
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public void deleteAcl(String addr, String subject, String resource, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		DeleteAclRequestHeader requestHeader = new DeleteAclRequestHeader(subject, resource);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_DELETE_ACL, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return;
+			default:
+				break;
+		}
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public AclInfo getAcl(String addr, String subject, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		GetAclRequestHeader requestHeader = new GetAclRequestHeader(subject);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_GET_ACL, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decode(response.getBody(), AclInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
+	}
+
+	public List<AclInfo> listAcl(String addr, String subjectFilter, String resoueceFilter, long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+		ListAclsRequestHeader requestHeader = new ListAclsRequestHeader(subjectFilter, resoueceFilter);
+
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.AUTH_LIST_ACL, requestHeader);
+
+		RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
+		assert response != null;
+		switch (response.getCode()) {
+			case ResponseCode.SUCCESS:
+				return RemotingSerializable.decodeList(response.getBody(), AclInfo.class);
+			default:
+				break;
+		}
+
+		throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
 	}
 
 

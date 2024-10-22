@@ -14,6 +14,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.mawen.learn.rocketmq.client.ClientConfig;
+import com.mawen.learn.rocketmq.client.impl.MQClientAPIImpl;
 import com.mawen.learn.rocketmq.client.impl.producer.MQProducerInner;
 import com.mawen.learn.rocketmq.client.producer.DefaultMQProducer;
 import com.mawen.learn.rocketmq.common.ServiceState;
