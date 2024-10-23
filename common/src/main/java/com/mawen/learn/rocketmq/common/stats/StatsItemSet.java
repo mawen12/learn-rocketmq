@@ -25,10 +25,10 @@ public class StatsItemSet {
 
 	private final Logger logger;
 
-	public StatsItemSet(Logger logger, ScheduledExecutorService scheduledExecutorService, String statsName) {
-		this.logger = logger;
-		this.scheduledExecutorService = scheduledExecutorService;
+	public StatsItemSet(String statsName, ScheduledExecutorService scheduledExecutorService, Logger logger) {
 		this.statsName = statsName;
+		this.scheduledExecutorService = scheduledExecutorService;
+		this.logger = logger;
 		this.init();
 	}
 

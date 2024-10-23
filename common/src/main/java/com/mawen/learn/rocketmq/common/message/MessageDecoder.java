@@ -11,6 +11,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
@@ -495,6 +496,20 @@ public class MessageDecoder {
 		byteBuffer.put(propertiesBytes);
 
 		return byteBuffer.array();
+	}
+
+	public static List<MessageExt> decodes(ByteBuffer buffer, final boolean readBody) {
+		List<MessageExt> msgExts = new ArrayList<>();
+		while (buffer.hasRemaining()) {
+			MessageExt messageExt = clientDecode(buffer, readBody);
+			if (messageExt != null) {
+				msgExts.add(messageExt);
+			}
+			else {
+				break;
+			}
+		}
+		return msgExts;
 	}
 
 	public static String messageProperties2String(Map<String, String> properties) {

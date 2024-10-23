@@ -2,10 +2,19 @@ package com.mawen.learn.rocketmq.common.message;
 
 import java.io.Serializable;
 
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/1
  */
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class MessageQueue implements Comparable<MessageQueue>, Serializable {
 
 	private static final long serialVersionUID = -8084174795288467394L;
@@ -14,43 +23,10 @@ public class MessageQueue implements Comparable<MessageQueue>, Serializable {
 	private String brokerName;
 	private int queueId;
 
-	public MessageQueue() {
-	}
-
 	public MessageQueue(MessageQueue other) {
 		this.topic = other.topic;
 		this.brokerName = other.brokerName;
 		this.queueId = other.queueId;
-	}
-
-	public MessageQueue(String topic, String brokerName, int queueId) {
-		this.topic = topic;
-		this.brokerName = brokerName;
-		this.queueId = queueId;
-	}
-
-	public String getTopic() {
-		return topic;
-	}
-
-	public void setTopic(String topic) {
-		this.topic = topic;
-	}
-
-	public String getBrokerName() {
-		return brokerName;
-	}
-
-	public void setBrokerName(String brokerName) {
-		this.brokerName = brokerName;
-	}
-
-	public int getQueueId() {
-		return queueId;
-	}
-
-	public void setQueueId(int queueId) {
-		this.queueId = queueId;
 	}
 
 	@Override
