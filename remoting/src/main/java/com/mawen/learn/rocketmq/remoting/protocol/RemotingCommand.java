@@ -20,6 +20,8 @@ import com.mawen.learn.rocketmq.remoting.annotation.CFNotNull;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
@@ -28,6 +30,8 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/11
  */
+@Getter
+@Setter
 public class RemotingCommand {
 	public static final Logger log = LoggerFactory.getLogger(LoggerName.ROCKETMQ_REMOTING_NAME);
 
@@ -201,10 +205,6 @@ public class RemotingCommand {
 		return requestId.getAndIncrement();
 	}
 
-	public static SerializeType getSerializeTypeConfigInThisServer() {
-		return serializeTypeConfigInThisServer;
-	}
-
 	public static int markProtocolType(int source, SerializeType type) {
 		return type.getCode() << 24 | (source & 0x00FFFFFF);
 	}
@@ -216,10 +216,6 @@ public class RemotingCommand {
 
 	public CommandCustomHeader readCustomHeader() {
 		return customHeader;
-	}
-
-	public void setCustomHeader(CommandCustomHeader customHeader) {
-		this.customHeader = customHeader;
 	}
 
 	public <T extends CommandCustomHeader> T decodeCommandCustomHeader(Class<T> classHeader) throws RemotingCommandException {
@@ -423,14 +419,6 @@ public class RemotingCommand {
 		return (this.flag & bits) == bits;
 	}
 
-	public int getCode() {
-		return code;
-	}
-
-	public void setCode(int code) {
-		this.code = code;
-	}
-
 	@JSONField(serialize = false)
 	public RemotingCommandType getType() {
 		if (this.isResponseType()) {
@@ -446,54 +434,6 @@ public class RemotingCommand {
 		return (this.flag & bits) == bits;
 	}
 
-	public LanguageCode getLanguage() {
-		return language;
-	}
-
-	public void setLanguage(LanguageCode language) {
-		this.language = language;
-	}
-
-	public int getVersion() {
-		return version;
-	}
-
-	public void setVersion(int version) {
-		this.version = version;
-	}
-
-	public int getOpaque() {
-		return opaque;
-	}
-
-	public void setOpaque(int opaque) {
-		this.opaque = opaque;
-	}
-
-	public int getFlag() {
-		return flag;
-	}
-
-	public void setFlag(int flag) {
-		this.flag = flag;
-	}
-
-	public String getRemark() {
-		return remark;
-	}
-
-	public void setRemark(String remark) {
-		this.remark = remark;
-	}
-
-	public byte[] getBody() {
-		return body;
-	}
-
-	public void setBody(byte[] body) {
-		this.body = body;
-	}
-
 	@JSONField(serialize = false)
 	public boolean isSuspended() {
 		return suspended;
@@ -502,14 +442,6 @@ public class RemotingCommand {
 	@JSONField(serialize = false)
 	public void setSuspended(boolean suspended) {
 		this.suspended = suspended;
-	}
-
-	public Map<String, String> getExtFields() {
-		return extFields;
-	}
-
-	public void setExtFields(Map<String, String> extFields) {
-		this.extFields = extFields;
 	}
 
 	public void addExtField(String key, String value) {
@@ -523,20 +455,8 @@ public class RemotingCommand {
 		extFields.putIfAbsent(key, value);
 	}
 
-	public SerializeType getSerializeTypeCurrentRPC() {
-		return serializeTypeCurrentRPC;
-	}
-
-	public void setSerializeTypeCurrentRPC(SerializeType serializeTypeCurrentRPC) {
-		this.serializeTypeCurrentRPC = serializeTypeCurrentRPC;
-	}
-
-	public Stopwatch getProcessTimer() {
-		return processTimer;
-	}
-
-	public void setProcessTimer(Stopwatch processTimer) {
-		this.processTimer = processTimer;
+	public boolean isResponseSuccess() {
+		return this.getCode() == ResponseCode.SUCCESS;
 	}
 
 	@Override

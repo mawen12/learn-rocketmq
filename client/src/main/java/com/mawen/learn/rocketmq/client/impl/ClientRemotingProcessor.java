@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.mawen.learn.rocketmq.client.impl.factory.MQClientInstance;
 import com.mawen.learn.rocketmq.client.impl.producer.MQProducerInner;
+import com.mawen.learn.rocketmq.client.producer.RequestFutureHolder;
 import com.mawen.learn.rocketmq.client.producer.RequestResponseFuture;
 import com.mawen.learn.rocketmq.common.UtilAll;
 import com.mawen.learn.rocketmq.common.compression.Compressor;
@@ -201,7 +202,7 @@ public class ClientRemotingProcessor implements NettyRequestProcessor {
 		return response;
 	}
 
-	private RemotingCommand receiveReplayMessage(ChannelHandlerContext ctx, RemotingCommand request) {
+	private RemotingCommand receiveReplayMessage(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
 		RemotingCommand response = RemotingCommand.createResponseCommand(null);
 		long receiveTime = System.currentTimeMillis();
 		ReplyMessageRequestHeader requestHeader = request.decodeCommandCustomHeader(ReplyMessageRequestHeader.class);

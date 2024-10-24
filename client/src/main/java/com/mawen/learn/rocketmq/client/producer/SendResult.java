@@ -45,6 +45,16 @@ public class SendResult {
 		this.offsetMsgId = offsetMsgId;
 	}
 
+	public SendResult(final SendStatus sendStatus, final String msgId, final MessageQueue mq, final long queueOffset, final String transactionId, final String offsetMsgId, final String regionId) {
+		this.sendStatus = sendStatus;
+		this.msgId = msgId;
+		this.messageQueue = mq;
+		this.queueOffset = queueOffset;
+		this.transactionId = transactionId;
+		this.offsetMsgId = offsetMsgId;
+		this.regionId = regionId;
+	}
+
 	public static String encoderSendResultToJson(final Object obj) {
 		return JSON.toJSONString(obj);
 	}

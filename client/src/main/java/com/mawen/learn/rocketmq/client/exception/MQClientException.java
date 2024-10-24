@@ -2,6 +2,7 @@ package com.mawen.learn.rocketmq.client.exception;
 
 import com.mawen.learn.rocketmq.common.UtilAll;
 import com.mawen.learn.rocketmq.common.help.FAQUrl;
+import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
@@ -21,6 +22,10 @@ public class MQClientException extends Exception{
 		this.errorMessage = errorMessage;
 	}
 
+	public MQClientException(RemotingCommand response) {
+		this(response.getCode(), response.getRemark());
+	}
+
 	public MQClientException(int responseCode, String errorMessage) {
 		super(FAQUrl.attachDefaultURL("CODE: " + UtilAll.responseCode2String(responseCode) + " DESC: " + errorMessage));
 		this.responseCode = responseCode;
@@ -32,6 +37,7 @@ public class MQClientException extends Exception{
 		this.responseCode = responseCode;
 		this.errorMessage = errorMessage;
 	}
+
 
 	public int getResponseCode() {
 		return responseCode;
