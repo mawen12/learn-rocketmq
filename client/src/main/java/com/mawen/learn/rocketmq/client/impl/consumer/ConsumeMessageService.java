@@ -16,6 +16,8 @@ public interface ConsumeMessageService {
 
 	void shutdown(long awaitTerminateMillis);
 
+	void updateCorePoolSize(int corePoolSize);
+
 	void incCorePoolSize();
 
 	void decCorePoolSize();
@@ -26,5 +28,6 @@ public interface ConsumeMessageService {
 
 	void submitConsumeRequest(final List<MessageExt> msgs, final ProcessQueue processQueue, final MessageQueue messageQueue, final boolean dispathToConsume);
 
-	void submitConsumeRequest(final List<MessageExt> msgs, final PopProcessQueue popProcessQueue, final MessageQueue messageQueue);
+	void submitPopConsumeRequest(final List<MessageExt> msgs, final PopProcessQueue popProcessQueue, final MessageQueue messageQueue);
+
 }

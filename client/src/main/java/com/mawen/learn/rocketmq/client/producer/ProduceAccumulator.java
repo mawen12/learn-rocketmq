@@ -83,6 +83,17 @@ public class ProduceAccumulator {
 		this.holdSize = totalHoldSize;
 	}
 
+	long getTotalBatchMaxBytes() {
+		return holdSize;
+	}
+
+	void totalBatchMaxBytes(long totalHoldSize) {
+		if (totalHoldSize <= 0) {
+			throw new IllegalArgumentException(String.format("totalBatchMaxBytes must bigger than 0, but get %d!", totalHoldSize))
+		}
+		this.totalHoldSize = totalHoldSize;
+	}
+
 	private MessageAccumulation getOrCreateSyncSendBatch(AggregateKey aggregateKey, DefaultMQProducer defaultMQProducer) {
 		return syncSendBatchs.computeIfAbsent(aggregateKey, k -> new MessageAccumulation(aggregateKey, defaultMQProducer));
 	}

@@ -4,7 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import com.mawen.learn.rocketmq.client.consumer.listener.ConsumerReturnType;
+import com.mawen.learn.rocketmq.client.consumer.listener.ConsumeReturnType;
 import com.mawen.learn.rocketmq.client.hook.ConsumeMessageContext;
 import com.mawen.learn.rocketmq.client.hook.ConsumeMessageHook;
 import com.mawen.learn.rocketmq.client.trace.TraceBean;
@@ -103,7 +103,7 @@ public class ConsumeMessageTraceHookImpl implements ConsumeMessageHook {
 		if (props != null) {
 			String contextType = props.get(MixAll.CONSUME_CONTEXT_TYPE);
 			if (contextType != null) {
-				subAfterContext.setContextCode(ConsumerReturnType.valueOf(contextType).ordinal());
+				subAfterContext.setContextCode(ConsumeReturnType.valueOf(contextType).ordinal());
 			}
 		}
 

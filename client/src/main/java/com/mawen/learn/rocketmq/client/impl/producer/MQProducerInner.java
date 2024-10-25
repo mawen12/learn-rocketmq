@@ -23,5 +23,7 @@ public interface MQProducerInner {
 
 	void checkTransactionState(String addr, MessageExt msg, CheckTransactionStateRequestHeader checkRequestHeader);
 
+	void updateTopicPublishInfo(final String topic, final TopicPublishInfo info);
+
 	boolean isUnitMode();
 }

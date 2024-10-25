@@ -21,7 +21,7 @@ public interface MQProducer extends MQAdmin {
 
 	void shutdown();
 
-	List<MessageQueue> fetchPublishMessageQueues(final Message msg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	List<MessageQueue> fetchPublishMessageQueues(final String topic) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
 
 	// region common send
 	SendResult send(final Message msg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;

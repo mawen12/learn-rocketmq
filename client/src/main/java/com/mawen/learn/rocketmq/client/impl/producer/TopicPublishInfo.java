@@ -89,6 +89,10 @@ public class TopicPublishInfo {
 		return -1;
 	}
 
+	public boolean ok() {
+		return this.messageQueueList != null && !this.messageQueueList.isEmpty();
+	}
+
 	public interface QueueFilter {
 		boolean filter(MessageQueue mq);
 	}

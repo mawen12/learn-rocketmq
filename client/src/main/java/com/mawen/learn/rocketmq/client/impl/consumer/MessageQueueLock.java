@@ -13,5 +13,15 @@ public class MessageQueueLock {
 
 	private ConcurrentMap<MessageQueue, ConcurrentMap<Integer, Object>> mqLockTable = new ConcurrentHashMap<>();
 
-	public Object fetchLockObjet
+	public Object fetchLockObject(final MessageQueue mq) {
+		return fetchLockObject(mq, -1);
+	}
+
+	public Object fetchLockObject(final MessageQueue mq, final int shardingKeyIndex) {
+		ConcurrentMap<Integer, Object> objMap = this.mqLockTable.computeIfAbsent(mq, key -> new ConcurrentHashMap<>(32));
+
+		Object lock = objMap.computeIfAbsent(shardingKeyIndex, k -> new Object());
+
+		return lock;
+	}
 }
