@@ -99,6 +99,19 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 		this(null, MixAll.DEFAULT_PRODUCER_GROUP, rpcHook);
 	}
 
+	public DefaultMQProducer(final String producerGroup) {
+		this(null, producerGroup, null);
+	}
+
+	public DefaultMQProducer(final String producerGroup, RPCHook rpcHook) {
+		this(null, producerGroup, rpcHook);
+	}
+
+	public DefaultMQProducer(final String producerGroup, RPCHook rpcHook, final List<String> topics) {
+		this(null, producerGroup, rpcHook);
+		this.topics = topics;
+	}
+
 	public DefaultMQProducer(final String namespace, final String producerGroup, RPCHook rpcHook) {
 		this.namespace = namespace;
 		this.producerGroup = producerGroup;
@@ -179,191 +192,216 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 
 	@Override
 	public SendResult send(Message msg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.send(msg, timeout);
 	}
 
 	@Override
 	public void send(Message msg, SendCallback sendCallback) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, sendCallback);
 	}
 
 	@Override
 	public void send(Message msg, SendCallback sendCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, sendCallback, timeout);
 	}
 
 	@Override
 	public void sendOneway(Message msg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.sendOneway(msg);
 	}
 
 	@Override
 	public SendResult send(Message msg, MessageQueue mq) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.send(msg, queueWithNamespace(mq));
 	}
 
 	@Override
 	public SendResult send(Message msg, MessageQueue mq, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.send(msg, queueWithNamespace(mq), timeout);
 	}
 
 	@Override
 	public void send(Message msg, MessageQueue mq, SendCallback sendCallback) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, queueWithNamespace(mq), sendCallback);
 	}
 
 	@Override
 	public void send(Message msg, MessageQueue mq, SendCallback sendCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, queueWithNamespace(mq), sendCallback, timeout);
 	}
 
 	@Override
 	public void sendOneway(Message msg, MessageQueue mq) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.sendOneway(msg, queueWithNamespace(mq));
 	}
 
 	@Override
 	public SendResult send(Message msg, MessageQueueSelector selector, Object arg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.send(msg, selector, arg);
 	}
 
 	@Override
 	public SendResult send(Message msg, MessageQueueSelector selector, Object arg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.send(msg, selector, arg, timeout);
 	}
 
 	@Override
 	public void send(Message msg, MessageQueueSelector selector, Object arg, SendCallback sendCallback) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, selector, arg, sendCallback);
 	}
 
 	@Override
 	public void send(Message msg, MessageQueueSelector selector, Object arg, SendCallback sendCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.send(msg, selector, arg, sendCallback, timeout);
 	}
 
 	@Override
 	public void sendOneway(Message msg, MessageQueueSelector selector, Object arg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.sendOneway(msg, selector, arg);
 	}
 
 	@Override
 	public TransactionResult sendMessageInTransaction(Message msg, Object arg) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		throw new RuntimeException("sendMessageInTransaction not implement, please use TransactionMQProducer class");
 	}
 
 	@Override
 	public SendResult send(Collection<Message> msgs) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		return this.defaultMQProducerImpl.send(batch(msgs));
 	}
 
 	@Override
 	public void send(Collection<Message> msgs, SendCallback sendCallback) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		this.defaultMQProducerImpl.send(batch(msgs), sendCallback);
 	}
 
 	@Override
 	public SendResult send(Collection<Message> msgs, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		return this.defaultMQProducerImpl.send(batch(msgs), timeout);
 	}
 
 	@Override
 	public void send(Collection<Message> msgs, SendCallback sendCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		this.defaultMQProducerImpl.send(batch(msgs), sendCallback, timeout);
 	}
 
 	@Override
 	public SendResult send(Collection<Message> msgs, MessageQueue mq) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		return this.defaultMQProducerImpl.send(batch(msgs), queueWithNamespace(mq));
 	}
 
 	@Override
 	public void send(Collection<Message> msgs, MessageQueue mq, SendCallback sendCallback) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		this.defaultMQProducerImpl.send(batch(msgs), queueWithNamespace(mq), sendCallback);
 	}
 
 	@Override
 	public SendResult send(Collection<Message> msgs, MessageQueue mq, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		return this.defaultMQProducerImpl.send(batch(msgs), queueWithNamespace(mq), timeout);
 	}
 
 	@Override
 	public void send(Collection<Message> msgs, MessageQueue mq, SendCallback sendCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		this.defaultMQProducerImpl.send(batch(msgs), queueWithNamespace(mq), sendCallback, timeout);
 	}
 
 	@Override
 	public Message request(Message msg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.request(msg, timeout);
 	}
 
 	@Override
 	public void request(Message msg, RequestCallback requestCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.request(msg, requestCallback, timeout);
 	}
 
 	@Override
 	public Message request(Message msg, MessageQueue mq, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.request(msg, mq, timeout);
 	}
 
 	@Override
 	public void request(Message msg, MessageQueue mq, RequestCallback requestCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.request(msg, mq, requestCallback, timeout);
 	}
 
 	@Override
 	public Message request(Message msg, MessageQueueSelector selector, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-		return null;
+		msg.setTopic(withNamespace(msg.getTopic()));
+		return this.defaultMQProducerImpl.request(msg, selector, timeout);
 	}
 
 	@Override
 	public void request(Message msg, MessageQueueSelector selector, RequestCallback requestCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
-
+		msg.setTopic(withNamespace(msg.getTopic()));
+		this.defaultMQProducerImpl.request(msg, selector, requestCallback, timeout);
 	}
 
 	@Override
 	public void createTopic(String key, String newTopic, int queueNum, Map<String, String> attributes) throws MQClientException {
-
+		this.defaultMQProducerImpl.createTopic(key, withNamespace(newTopic), queueNum, 0);
 	}
 
 	@Override
 	public void createTopic(String key, String newTopic, int queueNum, int topicSysFlag, Map<String, String> attributes) throws MQClientException {
-
+		this.defaultMQProducerImpl.createTopic(key, withNamespace(newTopic), queueNum, topicSysFlag);
 	}
 
 	@Override
 	public long searchOffset(MessageQueue mq, long timestamp) throws MQClientException {
-		return 0;
+		return this.defaultMQProducerImpl.searchOffset(queueWithNamespace(mq), timestamp);
 	}
 
 	@Override
 	public long maxOffset(MessageQueue mq) throws MQClientException {
-		return 0;
+		return this.defaultMQProducerImpl.maxOffset(queueWithNamespace(mq));
 	}
 
 	@Override
 	public long minOffset(MessageQueue mq) throws MQClientException {
-		return 0;
+		return this.defaultMQProducerImpl.minOffset(queueWithNamespace(mq));
 	}
 
 	@Override
 	public long earliestMsgStoreTime(MessageQueue mq) throws MQClientException {
-		return 0;
+		return this.defaultMQProducerImpl.earliestMsgStoreTime(queueWithNamespace(mq));
 	}
 
 	@Override
 	public QueryResult queryMessage(String topic, String key, int maxNum, long begin, long end) throws MQClientException, InterruptedException {
-		return null;
+		return this.defaultMQProducerImpl.queryMessage(withNamespace(topic), key, maxNum, begin, end);
 	}
 
 	@Override
 	public MessageExt viewMessage(String topic, String msgId) throws RemotingException, MQBrokerException, InterruptedException, MQClientException {
-		return null;
+		try {
+			return this.defaultMQProducerImpl.viewMessage(topic, msgId);
+		}
+		catch (Exception ignored) {
+		}
+		return this.defaultMQProducerImpl.queryMessageByUniqKey(withNamespace(topic), msgId);
 	}
 
-	public void setCallbackExecutor() {
-
+	public void setCallbackExecutor(final ExecutorService callbackExecutor) {
+		this.defaultMQProducerImpl.setCallbackExecutor(callbackExecutor);
 	}
 
 	public void setAsyncSenderExecutor(final ExecutorService asyncSenderExecutor) {

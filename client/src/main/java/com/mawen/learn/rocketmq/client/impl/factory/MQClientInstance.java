@@ -16,11 +16,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.stream.Stream;
 
 import com.mawen.learn.rocketmq.client.ClientConfig;
 import com.mawen.learn.rocketmq.client.admin.MQAdminExtInner;
-import com.mawen.learn.rocketmq.client.consumer.RebalanceService;
+import com.mawen.learn.rocketmq.client.impl.consumer.RebalanceService;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
 import com.mawen.learn.rocketmq.client.impl.ClientRemotingProcessor;
 import com.mawen.learn.rocketmq.client.impl.MQAdminImpl;

@@ -12,7 +12,7 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class FilterAPI {
 
-	private static SubscriptionData buildSubscriptionData(String topic, String subString) throws Exception {
+	public static SubscriptionData buildSubscriptionData(String topic, String subString) throws Exception {
 		SubscriptionData subscriptionData = new SubscriptionData();
 		subscriptionData.setTopic(topic);
 		subscriptionData.setSubString(subString);

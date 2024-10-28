@@ -1453,7 +1453,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark());
 	}
 
-	public void updateBrokerConfig(final String addr, final Properties properties, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, UnsupportedEncodingException {
+	public void updateBrokerConfig(final String addr, final Properties properties, final long timeoutMillis) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, UnsupportedEncodingException, MQClientException {
 		Validators.checkBrokerConfig(properties);
 
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.UPDATE_BROKER_CONFIG, null);

@@ -1,4 +1,4 @@
-package com.mawen.learn.rocketmq.client.consumer;
+package com.mawen.learn.rocketmq.client.impl.consumer;
 
 import com.mawen.learn.rocketmq.client.impl.factory.MQClientInstance;
 import com.mawen.learn.rocketmq.common.ServiceThread;
