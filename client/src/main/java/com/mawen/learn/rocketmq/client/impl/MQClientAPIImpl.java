@@ -2,7 +2,6 @@ package com.mawen.learn.rocketmq.client.impl;
 
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -18,6 +17,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.alibaba.fastjson.JSON;
 import com.mawen.learn.rocketmq.client.ClientConfig;
 import com.mawen.learn.rocketmq.client.Validators;
+import com.mawen.learn.rocketmq.client.consumer.AckCallback;
+import com.mawen.learn.rocketmq.client.consumer.AckResult;
+import com.mawen.learn.rocketmq.client.consumer.AckStatus;
 import com.mawen.learn.rocketmq.client.consumer.PopCallback;
 import com.mawen.learn.rocketmq.client.consumer.PopResult;
 import com.mawen.learn.rocketmq.client.consumer.PopStatus;
@@ -57,7 +59,6 @@ import com.mawen.learn.rocketmq.common.message.MessageRequestMode;
 import com.mawen.learn.rocketmq.common.namesrv.DefaultTopAddressing;
 import com.mawen.learn.rocketmq.common.namesrv.NameServerUpdateCallback;
 import com.mawen.learn.rocketmq.common.namesrv.TopAddressing;
-import com.mawen.learn.rocketmq.common.queue.RoundQueue;
 import com.mawen.learn.rocketmq.common.sysflag.PullSysFlag;
 import com.mawen.learn.rocketmq.common.topic.TopicValidator;
 import com.mawen.learn.rocketmq.remoting.ChannelEventListener;
@@ -76,7 +77,6 @@ import com.mawen.learn.rocketmq.remoting.netty.NettyClientConfig;
 import com.mawen.learn.rocketmq.remoting.netty.NettyRemotingClient;
 import com.mawen.learn.rocketmq.remoting.netty.ResponseFuture;
 import com.mawen.learn.rocketmq.remoting.protocol.DataVersion;
-import com.mawen.learn.rocketmq.remoting.protocol.EpochEntry;
 import com.mawen.learn.rocketmq.remoting.protocol.LanguageCode;
 import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
@@ -86,6 +86,7 @@ import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
 import com.mawen.learn.rocketmq.remoting.protocol.admin.ConsumeStats;
 import com.mawen.learn.rocketmq.remoting.protocol.admin.TopicStatsTable;
 import com.mawen.learn.rocketmq.remoting.protocol.body.AclInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.body.BatchAckMessageRequestBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerMemberGroup;
 import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerReplicasInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.body.BrokerStatsData;
@@ -119,7 +120,10 @@ import com.mawen.learn.rocketmq.remoting.protocol.body.TopicConfigSerializeWrapp
 import com.mawen.learn.rocketmq.remoting.protocol.body.TopicList;
 import com.mawen.learn.rocketmq.remoting.protocol.body.UnlockBatchRequestBody;
 import com.mawen.learn.rocketmq.remoting.protocol.body.UserInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.header.AckMessageRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.AddBrokerRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ChangeInvisibleTimeRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.ChangeInvisibleTimeResponseHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.CloneGroupOffsetRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.ConsumeMessageDirectlyResultRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.ConsumerSendMsgBackRequestHeader;
@@ -796,7 +800,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(), responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody(), responseHeader.getOffsetDelta());
 	}
 
-	public void popMessageExt(final String brokerName, final String addr, final PopMessageRequestHeader requestHeader, final long timeoutMillis, final PopCallback popCallback) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
+	public void popMessageAsync(final String brokerName, final String addr, final PopMessageRequestHeader requestHeader, final long timeoutMillis, final PopCallback popCallback) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
 		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.POP_MESSAGE, requestHeader);
 
 		this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
@@ -819,6 +823,84 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 			@Override
 			public void operationFail(Throwable throwable) {
 				popCallback.onException(throwable);
+			}
+		});
+	}
+
+	public void ackMessageAsync(final String addr, final long timeout, final AckCallback ackCallback, final AckMessageRequestHeader requestHeader) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
+		ackMessageAsync(addr, timeout, ackCallback, requestHeader, null);
+	}
+
+	public void batchAckMessageAsync(final String addr, final long timeout, final AckCallback ackCallback, final AckMessageRequestHeader requestHeader, final BatchAckMessageRequestBody requestBody) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
+		ackMessageAsync(addr, timeout, ackCallback, null, requestBody);
+	}
+
+	protected void ackMessageAsync(final String addr, final long timeout, final AckCallback callback, final AckMessageRequestHeader requestHeader, final BatchAckMessageRequestBody requestBody) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
+		RemotingCommand request;
+		if (requestHeader != null) {
+			request = RemotingCommand.createRequestCommand(RequestCode.ACK_MESSAGE, requestHeader);
+		}
+		else {
+			request = RemotingCommand.createRequestCommand(RequestCode.BATCH_ACK_MESSAGE, null);
+			if (requestBody != null) {
+				request.setBody(requestBody.encode());
+			}
+		}
+
+		this.remotingClient.invokeAsync(addr, request, timeout, new InvokeCallback() {
+			@Override
+			public void operationComplete(ResponseFuture responseFuture) {
+			}
+
+			@Override
+			public void operationSucceed(RemotingCommand response) {
+				AckResult ackResult = new AckResult();
+				if (response.isResponseSuccess()) {
+					ackResult.setStatus(AckStatus.OK);
+				}
+				else {
+					ackResult.setStatus(AckStatus.NO_EXIST);
+				}
+				callback.onSuccess(ackResult);
+			}
+
+			@Override
+			public void operationFail(Throwable throwable) {
+				callback.onException(throwable);
+			}
+		});
+	}
+
+	public void changeInvisibleTimeAsync(final String brokerName, final String addr, final ChangeInvisibleTimeRequestHeader requestHeader, final long timeout, final AckCallback ackCallback) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, RemotingTooMuchRequestException {
+		RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.CHANGE_MESSAGE_INVISIBLETIME, requestHeader);
+
+		this.remotingClient.invokeAsync(addr, request, timeout, new InvokeCallback(){
+			@Override
+			public void operationComplete(ResponseFuture responseFuture) {
+			}
+
+			@Override
+			public void operationSucceed(RemotingCommand response) {
+				try {
+					ChangeInvisibleTimeResponseHeader responseHeader = response.decodeCommandCustomHeader(ChangeInvisibleTimeResponseHeader.class);
+					AckResult ackResult = new AckResult();
+					if (response.isResponseSuccess()) {
+						ackResult.setStatus(AckStatus.OK);
+						ackResult.setPopTime(responseHeader.getPopTime());
+						ackResult.setExtraInfo(ExtraInfoUtil.buildExtraInfo(requestHeader.getOffset(), responseHeader.getPopTime(), responseHeader.getInvisibleTime(), responseHeader.getReviveQid(), requestHeader.getTopic(), brokerName, requestHeader.getQueueId()) + MessageConst.KEY_SEPARATOR + requestHeader.getOffset());
+					}
+					else {
+						ackResult.setStatus(AckStatus.NO_EXIST);
+					}
+				}
+				catch (Exception e) {
+					ackCallback.onException(e);
+				}
+			}
+
+			@Override
+			public void operationFail(Throwable throwable) {
+				ackCallback.onException(throwable);
 			}
 		});
 	}

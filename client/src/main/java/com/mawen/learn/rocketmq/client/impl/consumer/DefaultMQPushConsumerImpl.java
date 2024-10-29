@@ -18,6 +18,7 @@ import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumerRunningInfo;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.ConsumeType;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.MessageModel;
 import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
+import lombok.Getter;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
@@ -25,6 +26,7 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/23
  */
+@Getter
 public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 	private static final Logger log = LoggerFactory.getLogger(DefaultMQPushConsumerImpl.class);
 
