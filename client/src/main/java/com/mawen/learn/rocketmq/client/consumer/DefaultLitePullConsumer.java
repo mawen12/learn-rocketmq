@@ -9,6 +9,7 @@ import com.mawen.learn.rocketmq.client.ClientConfig;
 import com.mawen.learn.rocketmq.client.consumer.rebalance.AllocateMessageQueueAveragely;
 import com.mawen.learn.rocketmq.client.consumer.store.OffsetStore;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.impl.consumer.DefaultLitePullConsumerImpl;
 import com.mawen.learn.rocketmq.client.trace.AsyncTraceDispatcher;
 import com.mawen.learn.rocketmq.client.trace.TraceDispatcher;
 import com.mawen.learn.rocketmq.client.trace.hook.ConsumeMessageTraceHookImpl;
@@ -38,7 +39,7 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 
 	private static final long MIN_AUTOCOMMIT_INTERVAL_MILLIS = 1000;
 
-	private final DefaultLitePullConsumerIml defaultLitePullConsumerIml;
+	private final DefaultLitePullConsumerImpl defaultLitePullConsumerImpl;
 
 	private String consumerGroup;
 
@@ -90,7 +91,7 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 		this.consumerGroup = consumerGroup;
 		this.rpcHook = rpcHook;
 		this.enableStreamRequestType = true;
-		this.defaultLitePullConsumerIml = new DefaultLitePullConsumerImpl(this, rpcHook);
+		this.defaultLitePullConsumerImpl = new DefaultLitePullConsumerImpl(this, rpcHook);
 	}
 
 	public DefaultLitePullConsumer(final String namespace, final String consumerGroup, RPCHook rpcHook) {
@@ -98,14 +99,14 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 		this.consumerGroup = consumerGroup;
 		this.rpcHook = rpcHook;
 		this.enableStreamRequestType = true;
-		this.defaultLitePullConsumerIml = new DefaultLitePullConsumerImpl(this, rpcHook);
+		this.defaultLitePullConsumerImpl = new DefaultLitePullConsumerImpl(this, rpcHook);
 	}
 
 	@Override
 	public void start() throws MQClientException {
 		setTraceDispatcher();
 		setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
-		this.defaultLitePullConsumerIml.start();
+		this.defaultLitePullConsumerImpl.start();
 		if (traceDispatcher != null) {
 			try {
 				traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());
@@ -118,7 +119,7 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 
 	@Override
 	public void shutdown() {
-		this.defaultLitePullConsumerIml.shutdown();
+		this.defaultLitePullConsumerImpl.shutdown();
 		if (traceDispatcher != null) {
 			traceDispatcher.shutdown();
 		}
@@ -126,7 +127,7 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 
 	@Override
 	public boolean isRunning() {
-		return this.defaultLitePullConsumerIml.isRunning();
+		return this.defaultLitePullConsumerImpl.isRunning();
 	}
 
 	@Override
@@ -136,122 +137,122 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 
 	@Override
 	public void subscribe(String topic, String subExpression) throws MQClientException {
-		this.defaultLitePullConsumerIml.subscribe(withNamespace(topic), subExpression);
+		this.defaultLitePullConsumerImpl.subscribe(withNamespace(topic), subExpression);
 	}
 
 	@Override
 	public void subscribe(String topic, String subExpression, MessageQueueListener listener) throws MQClientException {
-		this.defaultLitePullConsumerIml.subscribe(withNamespace(topic), subExpression, listener);
+		this.defaultLitePullConsumerImpl.subscribe(withNamespace(topic), subExpression, listener);
 	}
 
 	@Override
 	public void subscribe(String topic, MessageSelector selector) throws MQClientException {
-		this.defaultLitePullConsumerIml.subscribe(withNamespace(topic), selector);
+		this.defaultLitePullConsumerImpl.subscribe(withNamespace(topic), selector);
 	}
 
 	@Override
 	public void unsubscribe(String topic) {
-		this.defaultLitePullConsumerIml.unsubscribe(withNamespace(topic));
+		this.defaultLitePullConsumerImpl.unsubscribe(withNamespace(topic));
 	}
 
 	@Override
 	public void assign(Collection<MessageQueue> messageQueues) {
-		this.defaultLitePullConsumerIml.assign(queuesWithNamespace(messageQueues));
+		this.defaultLitePullConsumerImpl.assign(queuesWithNamespace(messageQueues));
 	}
 
 	@Override
 	public void setSubExpressionForAssign(String topic, String subExpression) {
-		this.defaultLitePullConsumerIml.setSubExpressionForAssign(withNamespace(topic), subExpression);
+		this.defaultLitePullConsumerImpl.setSubExpressionForAssign(withNamespace(topic), subExpression);
 	}
 
 	@Override
 	public List<MessageExt> poll() {
-		return this.defaultLitePullConsumerIml.poll(this.getPollTimeoutMillis());
+		return this.defaultLitePullConsumerImpl.poll(this.getPollTimeoutMillis());
 	}
 
 	@Override
 	public List<MessageExt> poll(long timeout) {
-		return this.defaultLitePullConsumerIml.poll(timeout);
+		return this.defaultLitePullConsumerImpl.poll(timeout);
 	}
 
 	@Override
 	public void seek(MessageQueue mq, long offset) throws MQClientException {
-		this.defaultLitePullConsumerIml.seek(queueWithNamespace(mq), offset);
+		this.defaultLitePullConsumerImpl.seek(queueWithNamespace(mq), offset);
 	}
 
 	@Override
 	public void pause(Collection<MessageQueue> messageQueues) {
-		this.defaultLitePullConsumerIml.pause(queuesWithNamespace(messageQueues));
+		this.defaultLitePullConsumerImpl.pause(queuesWithNamespace(messageQueues));
 	}
 
 	@Override
 	public void resume(Collection<MessageQueue> messageQueues) {
-		this.defaultLitePullConsumerIml.resume(queuesWithNamespace(messageQueues));
+		this.defaultLitePullConsumerImpl.resume(queuesWithNamespace(messageQueues));
 	}
 
 	@Override
 	public Collection<MessageQueue> fetchMessageQueues(String topic) throws MQClientException {
-		return this.defaultLitePullConsumerIml.fetchMessageQueues(withNamespace(topic));
+		return this.defaultLitePullConsumerImpl.fetchMessageQueues(withNamespace(topic));
 	}
 
 	@Override
 	public Long offsetForTimestamp(MessageQueue mq, Long timestamp) throws MQClientException {
-		return this.defaultLitePullConsumerIml.searchOffset(queueWithNamespace(mq), timestamp);
+		return this.defaultLitePullConsumerImpl.searchOffset(queueWithNamespace(mq), timestamp);
 	}
 
 	@Override
 	public void commitSync() {
-		this.defaultLitePullConsumerIml.commitAll();
+		this.defaultLitePullConsumerImpl.commitAll();
 	}
 
 	@Override
 	public void commitSync(Map<MessageQueue, Long> offsetMap, boolean persist) {
-		this.defaultLitePullConsumerIml.commit(offsetMap, persist);
+		this.defaultLitePullConsumerImpl.commit(offsetMap, persist);
 	}
 
 	@Override
 	public void commit() {
-		this.defaultLitePullConsumerIml.commitAll();
+		this.defaultLitePullConsumerImpl.commitAll();
 	}
 
 	@Override
 	public void commit(Map<MessageQueue, Long> offsetMap, boolean persist) {
-		this.defaultLitePullConsumerIml.commit(offsetMap, persist);
+		this.defaultLitePullConsumerImpl.commit(offsetMap, persist);
 	}
 
 	@Override
 	public void commit(Set<MessageQueue> messageQueues, boolean persist) {
-		this.defaultLitePullConsumerIml.commit(messageQueues, persist);
+		this.defaultLitePullConsumerImpl.commit(messageQueues, persist);
 	}
 
 	@Override
 	public Long committed(MessageQueue mq) throws MQClientException {
-		return this.defaultLitePullConsumerIml.committed(queueWithNamespace(mq));
+		return this.defaultLitePullConsumerImpl.committed(queueWithNamespace(mq));
 	}
 
 	@Override
 	public Set<MessageQueue> assignment() throws MQClientException {
-		return this.defaultLitePullConsumerIml.assignment();
+		return this.defaultLitePullConsumerImpl.assignment();
 	}
 
 	@Override
 	public void registerTopicMessageQueueChangeListener(String topic, TopicMessageQueueChangeListener listener) throws MQClientException {
-		this.defaultLitePullConsumerIml.registerTopicMessageQueueChangeListener(withNamespace(topic), listener);
+		this.defaultLitePullConsumerImpl.registerTopicMessageQueueChangeListener(withNamespace(topic), listener);
 	}
 
 	@Override
 	public void updateNameServerAddress(String nameServerAddress) {
-		this.defaultLitePullConsumerIml.updateNameServerAddress(nameServerAddress);
+		this.defaultLitePullConsumerImpl.updateNameServerAddress(nameServerAddress);
 	}
 
 	@Override
 	public void seekToBegin(MessageQueue mq) throws MQClientException {
-		this.defaultLitePullConsumerIml.seekToBegin(queueWithNamespace(mq));
+		this.defaultLitePullConsumerImpl.seekToBegin(queueWithNamespace(mq));
 	}
 
 	@Override
 	public void seekToEnd(MessageQueue mq) throws MQClientException {
-		this.defaultLitePullConsumerIml.seekToEnd(queueWithNamespace(mq));
+		this.defaultLitePullConsumerImpl.seekToEnd(queueWithNamespace(mq));
 	}
 
 	public void setConsumeFromWhere(ConsumeFromWhere consumeFromWhere) {
@@ -277,7 +278,7 @@ public class DefaultLitePullConsumer extends ClientConfig implements LitePullCon
 				dispatcher.getTraceProducer().setUseTLS(isUseTLS());
 				dispatcher.setNamespaceV2(namespaceV2);
 				this.traceDispatcher = dispatcher;
-				this.defaultLitePullConsumerIml.registerConsumeMessageHook(new ConsumeMessageTraceHookImpl(dispatcher));
+				this.defaultLitePullConsumerImpl.registerConsumeMessageHook(new ConsumeMessageTraceHookImpl(dispatcher));
 			}
 			catch (Throwable e) {
 				log.error("system mqtrace hook init failed, maybe can't send msg trace data");

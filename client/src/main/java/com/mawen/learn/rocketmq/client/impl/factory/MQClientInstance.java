@@ -1,5 +1,6 @@
 package com.mawen.learn.rocketmq.client.impl.factory;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -29,6 +30,7 @@ import com.mawen.learn.rocketmq.client.impl.FindBrokerResult;
 import com.mawen.learn.rocketmq.client.impl.MQAdminImpl;
 import com.mawen.learn.rocketmq.client.impl.MQClientAPIImpl;
 import com.mawen.learn.rocketmq.client.impl.MQClientManager;
+import com.mawen.learn.rocketmq.client.impl.consumer.DefaultMQPullConsumerImpl;
 import com.mawen.learn.rocketmq.client.impl.consumer.DefaultMQPushConsumerImpl;
 import com.mawen.learn.rocketmq.client.impl.consumer.MQConsumerInner;
 import com.mawen.learn.rocketmq.client.impl.consumer.ProcessQueue;
@@ -67,6 +69,8 @@ import com.mawen.learn.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 import com.mawen.learn.rocketmq.remoting.protocol.route.BrokerData;
 import com.mawen.learn.rocketmq.remoting.protocol.route.QueueData;
 import com.mawen.learn.rocketmq.remoting.protocol.route.TopicRouteData;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingInfo;
+import com.mawen.learn.rocketmq.remoting.protocol.statictopic.TopicQueueMappingUtils;
 import io.netty.channel.Channel;
 import lombok.Getter;
 import lombok.Setter;
@@ -166,7 +170,7 @@ public class MQClientInstance {
 						}
 					}
 				}
-			}
+			};
 		}
 		else {
 			channelEventListener = null;
@@ -249,7 +253,7 @@ public class MQClientInstance {
 	public static Set<MessageQueue> topicRouteData2TopicSubscribeInfo(String topic, TopicRouteData routeData) {
 		Set<MessageQueue> mqList = new HashSet<>();
 		if (MapUtils.isNotEmpty(routeData.getTopicQueueMappingByBroker())) {
-			ConcurrentMap<MessageQueue, Long> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, routeData);
+			ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, routeData);
 			return mqEndPoints.keySet();
 		}
 
@@ -264,6 +268,62 @@ public class MQClientInstance {
 		}
 
 		return mqList;
+	}
+
+	public static ConcurrentMap<MessageQueue, String> topicRouteData2EndpointsForStaticTopic(final String topic, final TopicRouteData route) {
+		if (route.getTopicQueueMappingByBroker() == null || route.getTopicQueueMappingByBroker().isEmpty()) {
+			return new ConcurrentHashMap<>();
+		}
+
+		ConcurrentMap<MessageQueue, String> mqEndPointsOfBroker = new ConcurrentHashMap<>();
+		Map<String, Map<String, TopicQueueMappingInfo>> mappingInfoByScope = new HashMap<>();
+
+		for (Map.Entry<String, TopicQueueMappingInfo> entry : route.getTopicQueueMappingByBroker().entrySet()) {
+			TopicQueueMappingInfo info = entry.getValue();
+			String scope = info.getScope();
+			if (scope != null) {
+				mappingInfoByScope.computeIfAbsent(scope, k -> new HashMap<>())
+						.put(entry.getKey(), entry.getValue());
+			}
+		}
+
+		for (Map.Entry<String, Map<String, TopicQueueMappingInfo>> mapEntry : mappingInfoByScope.entrySet()) {
+			String scope = mapEntry.getKey();
+			Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap = mapEntry.getValue();
+			ConcurrentMap<MessageQueue, TopicQueueMappingInfo> mqEndPoints = new ConcurrentHashMap<>();
+			List<Map.Entry<String, TopicQueueMappingInfo>> mappingInfos = new ArrayList<>(topicQueueMappingInfoMap.entrySet());
+
+			mappingInfos.sort((o1, o2) -> (int) (o2.getValue().getEpoch() - o1.getValue().getEpoch()));
+			int maxTotalNums = 0;
+			long maxTotalNumOfEpoch = -1;
+
+			for (Map.Entry<String, TopicQueueMappingInfo> entry : mappingInfos) {
+				TopicQueueMappingInfo info = entry.getValue();
+				if (info.getEpoch() >= maxTotalNumOfEpoch && info.getTotalQueues() > maxTotalNums) {
+					maxTotalNums = info.getTotalQueues();
+				}
+				for (Map.Entry<Integer, Integer> idEntry : entry.getValue().getCurrIdMap().entrySet()) {
+					Integer globalId = idEntry.getKey();
+					MessageQueue mq = new MessageQueue(topic, TopicQueueMappingUtils.getMockBrokerName(info.getScope()), globalId);
+					TopicQueueMappingInfo oldInfo = mqEndPoints.get(mq);
+					if (oldInfo == null || oldInfo.getEpoch() <= info.getEpoch()) {
+						mqEndPoints.put(mq, info);
+					}
+				}
+			}
+
+			for (int i = 0; i < maxTotalNums; i++) {
+				MessageQueue mq = new MessageQueue(topic, TopicQueueMappingUtils.getMockBrokerName(scope), i);
+				if (!mqEndPoints.containsKey(mq)) {
+					mqEndPointsOfBroker.put(mq, MixAll.LOGICAL_QUEUE_MOCK_BROKER_NAME_NOT_EXIST);
+				}
+				else {
+					mqEndPointsOfBroker.put(mq, mqEndPoints.get(mq).getBname());
+				}
+			}
+		}
+
+		return mqEndPointsOfBroker;
 	}
 
 	public void start() throws MQClientException {
@@ -294,9 +354,9 @@ public class MQClientInstance {
 		}
 	}
 
-	public void checkClientInBroker() {
+	public void checkClientInBroker() throws MQClientException {
 		for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
-			Set<SubscriptionData> subscriptionInner = entry.getValue().getSubscriptions();
+			Set<SubscriptionData> subscriptionInner = entry.getValue().subscriptions();
 			if (subscriptionInner == null || subscriptionInner.isEmpty()) {
 				return;
 			}
@@ -318,7 +378,7 @@ public class MQClientInstance {
 						else {
 							throw new MQClientException("Check client in broker error, maybe because you use" + subscriptionData.getExpressionType()
 									+ " to filter message, but server has not been upgraded to to support! This error would not affect the launch of consumer,"
-							+ "but may has impact on message receiving if you have use the new features which are not supported by server, please check the log!", e)
+									+ "but may has impact on message receiving if you have use the new features which are not supported by server, please check the log!", e);
 						}
 					}
 				}
@@ -847,7 +907,7 @@ public class MQClientInstance {
 			return consumer.getOffsetStore().cloneOffsetTable(topic);
 		}
 		else if (mqConsumerInner instanceof DefaultMQPullConsumerImpl) {
-			DefaultMQPullConsumerImpl consumer = mqConsumerInner;
+			DefaultMQPullConsumerImpl consumer = (DefaultMQPullConsumerImpl) mqConsumerInner;
 			return consumer.getOffsetStore().cloneOffsetTable(topic);
 		}
 		return Collections.emptyMap();

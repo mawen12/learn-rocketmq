@@ -25,7 +25,7 @@ public interface MQConsumerInner {
 
 	Set<SubscriptionData> subscriptions();
 
-	void doBalance();
+	void doRebalance();
 
 	boolean tryBalance();
 

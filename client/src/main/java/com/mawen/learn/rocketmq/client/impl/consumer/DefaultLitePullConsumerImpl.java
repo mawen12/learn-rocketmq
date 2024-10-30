@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -11,6 +12,7 @@ import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -25,9 +27,11 @@ import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
 import com.mawen.learn.rocketmq.client.hook.ConsumeMessageHook;
 import com.mawen.learn.rocketmq.client.hook.FilterMessageHook;
+import com.mawen.learn.rocketmq.client.impl.CommunicationMode;
 import com.mawen.learn.rocketmq.client.impl.factory.MQClientInstance;
 import com.mawen.learn.rocketmq.common.MixAll;
 import com.mawen.learn.rocketmq.common.ServiceState;
+import com.mawen.learn.rocketmq.common.ThreadFactoryImpl;
 import com.mawen.learn.rocketmq.common.consumer.ConsumeFromWhere;
 import com.mawen.learn.rocketmq.common.filter.ExpressionType;
 import com.mawen.learn.rocketmq.common.message.Message;
@@ -35,7 +39,12 @@ import com.mawen.learn.rocketmq.common.message.MessageExt;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.common.sysflag.PullSysFlag;
 import com.mawen.learn.rocketmq.remoting.RPCHook;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
 import com.mawen.learn.rocketmq.remoting.protocol.body.ConsumerRunningInfo;
@@ -56,6 +65,7 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/28
  */
+@Setter
 @Getter
 public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 
@@ -77,7 +87,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 	private RebalanceImpl rebalanceImpl = new RebalanceLitePullImpl(this);
 
 	protected MQClientInstance mqClientFactory;
-	private PullAPIWapper pullAPIWapper;
+	private PullAPIWrapper pullAPIWrapper;
 	private OffsetStore offsetStore;
 	private SubscriptionType subscriptionType = SubscriptionType.NONE;
 	private long pullTimeDelayMillisWhenException = 1000;
@@ -97,9 +107,28 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 	private final MessageQueueLock messageQueueLock = new MessageQueueLock();
 	private final List<ConsumeMessageHook> consumeMessageHookList = new ArrayList<>();
 
+	public DefaultLitePullConsumerImpl(final DefaultLitePullConsumer defaultLitePullConsumer, RPCHook rpcHook) {
+		this.defaultLitePullConsumer = defaultLitePullConsumer;
+		this.rpcHook = rpcHook;
+		this.scheduledThreadPoolExecutor = new ScheduledThreadPoolExecutor(this.defaultLitePullConsumer.getPullThreadNums(),
+				new ThreadFactoryImpl("PullMsgThread-" + this.defaultLitePullConsumer.getConsumerGroup()));
+		this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("MonitorMessageQueueChangeThread"));
+		this.pullTimeDelayMillisWhenException = defaultLitePullConsumer.getPullTimeDelayMillisWhenException();
+	}
+
 	public void updateConsumeOffset(MessageQueue mq, long offset) {
 		checkServiceState();
 		this.offsetStore.updateOffset(mq, offset, false);
+	}
+
+	public long committed(MessageQueue mq) {
+		checkServiceState();
+
+	}
+
+	public long searchOffset(MessageQueue mq, long timestamp) {
+		checkServiceState();
+		return this.mqClientFactory.getMqAdminImpl().searchOffset(mq, timestamp);
 	}
 
 	@Override
@@ -130,7 +159,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 	}
 
 	@Override
-	public void doBalance() {
+	public void doRebalance() {
 		if (this.rebalanceImpl != null) {
 			this.rebalanceImpl.doRebalance(false);
 		}
@@ -225,13 +254,63 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 		}
 	}
 
+	private void checkServiceState() {
+		if (this.serviceState != ServiceState.RUNNING) {
+			throw new IllegalStateException(NOT_RUNNING_EXCEPTION_MESSAGE);
+		}
+	}
+
 	public Set<MessageQueue> fetchMessageQueues(String topic) throws MQClientException {
 		checkServiceState();
 		Set<MessageQueue> result = this.mqClientFactory.getMqAdminImpl().fetchSubscribeMessageQueues(topic);
 		return parseMessageQueues(result);
 	}
 
-	private PullResult pullSyncImpl(MessageQueue mq, SubscriptionData subscriptionData, long offset, int maxNums, boolean block, long timeout) throws MQClientException {
+	private long fetchConsumeOffset(MessageQueue mq) throws MQClientException {
+		checkServiceState();
+		return this.rebalanceImpl.computePullFromWhereWithException(mq);
+	}
+
+	private void clearMessageQueueInCache(MessageQueue mq) {
+		ProcessQueue pq = assignedMessageQueue.getProcessQueue(mq);
+		if (pq != null) {
+			pq.clear();
+		}
+
+		Iterator<ConsumeRequest> it = consumeRequestCache.iterator();
+		while (it.hasNext()) {
+			if (it.next().getMessageQueues().equals(mq)) {
+				it.remove();
+			}
+		}
+	}
+
+	private long nextPullOffset(MessageQueue mq) {
+		long offset = -1;
+		long seekOffset = assignedMessageQueue.getSeekOffset(mq);
+		if (seekOffset == -1) {
+			offset = seekOffset;
+			assignedMessageQueue.updateConsumeOffset(mq, offset);
+			assignedMessageQueue.setSeekOffset(mq, -1);
+		}
+		else {
+			offset = assignedMessageQueue.getPullOffset(mq);
+			if (offset == -1) {
+				offset = fetchConsumeOffset(mq);
+			}
+		}
+		return offset;
+	}
+
+	private PullResult pull(MessageQueue mq, SubscriptionData subscriptionData, long offset, int maxNums) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return pull(mq, subscriptionData, offset, maxNums, this.defaultLitePullConsumer.getConsumerPullTimeoutMillis());
+	}
+
+	private PullResult pull(MessageQueue mq, SubscriptionData subscriptionData, long offset, int maxNums, long timeout) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return this.pullSyncImpl(mq, subscriptionData, offset, maxNums, true, timeout);
+	}
+
+	private PullResult pullSyncImpl(MessageQueue mq, SubscriptionData subscriptionData, long offset, int maxNums, boolean block, long timeout) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, RemotingTooMuchRequestException {
 		if (mq == null) {
 			throw new MQClientException("mq is null", null);
 		}
@@ -246,7 +325,13 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 		long timeoutMillis = block ? this.defaultLitePullConsumer.getConsumerTimeoutMillisWhenSuspend() : timeout;
 		boolean isTagType = ExpressionType.isTagType(subscriptionData.getExpressionType());
 
-		PullResult pullResult = this.pullAPIWapper.pullKernelImpl();
+		PullResult pullResult = this.pullAPIWrapper.pullKernelImpl(mq, subscriptionData.getSubString(), subscriptionData.getExpressionType(),
+				isTagType ? 0L : subscriptionData.getSubVersion(), offset, maxNums, sysFlag, 0, this.defaultLitePullConsumer.getBrokerSuspendMaxTimeMillis(),
+				timeoutMillis, CommunicationMode.SYNC, null);
+
+		this.pullAPIWrapper.processPullResult(mq, pullResult, subscriptionData);
+
+		return pullResult;
 	}
 
 	private void resetTopic(List<MessageExt> msgList) {
@@ -259,7 +344,6 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner{
 				msg.setTopic(NamespaceUtil.withoutNamespace(msg.getTopic(), this.defaultLitePullConsumer.getNamespace()));
 			}
 		}
-
 	}
 
 	private void updateConsumeOffsetToBroker(MessageQueue mq, long offset, boolean isOneway) throws MQBrokerException, RemotingException, InterruptedException, MQClientException {

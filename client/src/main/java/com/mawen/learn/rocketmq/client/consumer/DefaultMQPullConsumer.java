@@ -10,6 +10,7 @@ import com.mawen.learn.rocketmq.client.consumer.rebalance.AllocateMessageQueueAv
 import com.mawen.learn.rocketmq.client.consumer.store.OffsetStore;
 import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.impl.consumer.DefaultMQPullConsumerImpl;
 import com.mawen.learn.rocketmq.common.MixAll;
 import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
@@ -35,7 +36,9 @@ public class DefaultMQPullConsumer extends ClientConfig implements MQPullConsume
 
 	private long brokerSuspendMaxTimeMillis = 20 * 1000;
 
-	private long consumerTimeoutMillisWhenSuspend = 10 * 1000;
+	private long consumerTimeoutMillisWhenSuspend = 30 * 1000;
+
+	private long consumerPullTimeoutMillis = 10 * 1000;
 
 	private MessageModel messageModel = MessageModel.CLUSTERING;
 

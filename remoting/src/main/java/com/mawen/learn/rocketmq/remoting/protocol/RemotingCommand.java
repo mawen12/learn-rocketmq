@@ -205,6 +205,10 @@ public class RemotingCommand {
 		return requestId.getAndIncrement();
 	}
 
+	public static SerializeType getSerializeTypeConfigInThisServer() {
+		return serializeTypeConfigInThisServer;
+	}
+
 	public static int markProtocolType(int source, SerializeType type) {
 		return type.getCode() << 24 | (source & 0x00FFFFFF);
 	}
