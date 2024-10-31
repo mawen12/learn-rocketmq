@@ -32,6 +32,10 @@ public class QueryConsumeQueueRequestHeader extends TopicQueueRequestHeader {
 		this.queueId = queueId;
 	}
 
+	public Integer getQueueId() {
+		return queueId;
+	}
+
 	@Override
 	public void checkFields() throws RemotingCommandException {
 

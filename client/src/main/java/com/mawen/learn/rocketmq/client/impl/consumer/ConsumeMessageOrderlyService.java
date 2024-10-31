@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 import com.mawen.learn.rocketmq.client.consumer.DefaultMQPushConsumer;
 import com.mawen.learn.rocketmq.client.consumer.listener.ConsumeReturnType;
-import com.mawen.learn.rocketmq.client.consumer.listener.ConsumerOrderlyContext;
+import com.mawen.learn.rocketmq.client.consumer.listener.ConsumeOrderlyContext;
 import com.mawen.learn.rocketmq.client.consumer.listener.ConsumerOrderlyStatus;
 import com.mawen.learn.rocketmq.client.consumer.listener.MessageListenerOrderly;
 import com.mawen.learn.rocketmq.client.hook.ConsumeMessageContext;
@@ -133,9 +133,9 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 		mq.setTopic(msg.getTopic());
 		mq.setQueueId(msg.getQueueId());
 
-		ConsumerOrderlyContext context = new ConsumerOrderlyContext(mq);
+		ConsumeOrderlyContext context = new ConsumeOrderlyContext(mq);
 
-		this.defaultMQPushConsumerImpl.resetRetryAndNamespace(msg, this.consumerGroup);
+		this.defaultMQPushConsumerImpl.resetRetryAndNamespace(msgs, this.consumerGroup);
 
 		final long begin = System.currentTimeMillis();
 		log.info("consumeMessageDirectly receive new message: {}", msg);
@@ -220,7 +220,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 		return false;
 	}
 
-	public boolean processConsumeResult(final List<MessageExt> msgs, final ConsumerOrderlyStatus status, final ConsumerOrderlyContext context, final ConsumeRequest consumeRequest) {
+	public boolean processConsumeResult(final List<MessageExt> msgs, final ConsumerOrderlyStatus status, final ConsumeOrderlyContext context, final ConsumeRequest consumeRequest) {
 		boolean continueConsume = false;
 		long commitOffset = -1L;
 		if (context.isAutoCommit()) {
@@ -317,7 +317,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 			MessageAccessor.clearProperty(newMsg, MessageConst.PROPERTY_TRANSACTION_PREPARED);
 			newMsg.setDelayTimeLevel(3 + msg.getReconsumeTimes());
 
-			this.defaultMQPushConsumerImpl.getMQClientFactory().getDefaultMQProducer().send(newMsg);
+			this.defaultMQPushConsumerImpl.getMqClientFactory().getDefaultMQProducer().send(newMsg);
 			return true;
 		}
 		catch (Exception e) {
@@ -410,18 +410,19 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 						List<MessageExt> msgs = this.processQueue.takeMessages(consumeBatchSize);
 						if (!msgs.isEmpty()) {
 							ConsumerOrderlyStatus status = null;
-							ConsumeMessageContext context = null;
+							ConsumeOrderlyContext context = new ConsumeOrderlyContext(messageQueue);
 
+							ConsumeMessageContext consumeMessageContext = null;
 							if (defaultMQPushConsumerImpl.hasHook()) {
-								context = new ConsumeMessageContext();
-								context.setConsumerGroup(defaultMQPushConsumer.getConsumerGroup());
-								context.setNamespace(defaultMQPushConsumer.getNamespace());
-								context.setMq(messageQueue);
-								context.setMsgList(msgs);
-								context.setSuccess(false);
-								context.setProps(new HashMap<>());
+								consumeMessageContext = new ConsumeMessageContext();
+								consumeMessageContext.setConsumerGroup(defaultMQPushConsumer.getConsumerGroup());
+								consumeMessageContext.setNamespace(defaultMQPushConsumer.getNamespace());
+								consumeMessageContext.setMq(messageQueue);
+								consumeMessageContext.setMsgList(msgs);
+								consumeMessageContext.setSuccess(false);
+								consumeMessageContext.setProps(new HashMap<>());
 
-								defaultMQPushConsumerImpl.executeHookBefore(context);
+								defaultMQPushConsumerImpl.executeHookBefore(consumeMessageContext);
 							}
 
 							long beginTimestamp = System.currentTimeMillis();
@@ -434,7 +435,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 									break;
 								}
 
-								status = messageListener.consumeMessage(Collections.unmodifiableList(msgs), new ConsumerOrderlyContext(this.messageQueue));
+								status = messageListener.consumeMessage(Collections.unmodifiableList(msgs), new ConsumeOrderlyContext(this.messageQueue));
 
 							}
 							catch (Throwable e) {
@@ -466,7 +467,7 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 							}
 
 							if (defaultMQPushConsumerImpl.hasHook()) {
-								context.getProps().put(MixAll.CONSUME_CONTEXT_TYPE, returnType.name());
+								consumeMessageContext.getProps().put(MixAll.CONSUME_CONTEXT_TYPE, returnType.name());
 							}
 
 							if (status == null) {
@@ -474,10 +475,10 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
 							}
 
 							if (defaultMQPushConsumerImpl.hasHook()) {
-								context.setStatus(status.toString());
-								context.setSuccess(status == ConsumerOrderlyStatus.SUCCESS || status == ConsumerOrderlyStatus.COMMIT);
-								context.setAccessChannel(defaultMQPushConsumer.getAccessChannel());
-								defaultMQPushConsumerImpl.executeHookAfter(context);
+								consumeMessageContext.setStatus(status.toString());
+								consumeMessageContext.setSuccess(status == ConsumerOrderlyStatus.SUCCESS || status == ConsumerOrderlyStatus.COMMIT);
+								consumeMessageContext.setAccessChannel(defaultMQPushConsumer.getAccessChannel());
+								defaultMQPushConsumerImpl.executeHookAfter(consumeMessageContext);
 							}
 
 							getConsumerStatsManager().incConsumeRT(consumerGroup, messageQueue.getTopic(), consumeRT);

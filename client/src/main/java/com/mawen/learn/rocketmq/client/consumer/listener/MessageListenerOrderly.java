@@ -10,5 +10,5 @@ import com.mawen.learn.rocketmq.common.message.MessageExt;
  */
 public interface MessageListenerOrderly extends MessageListener{
 
-	ConsumerOrderlyStatus consumeMessage(final List<MessageExt> msgs, final ConsumerOrderlyContext context);
+	ConsumerOrderlyStatus consumeMessage(final List<MessageExt> msgs, final ConsumeOrderlyContext context);
 }

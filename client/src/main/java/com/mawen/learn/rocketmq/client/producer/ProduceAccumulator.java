@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
+import com.mawen.learn.rocketmq.client.exception.MQClientException;
 import com.mawen.learn.rocketmq.common.ServiceThread;
 import com.mawen.learn.rocketmq.common.message.Message;
 import com.mawen.learn.rocketmq.common.message.MessageBatch;
@@ -19,6 +21,7 @@ import com.mawen.learn.rocketmq.common.message.MessageClientIDSetter;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -89,7 +92,7 @@ public class ProduceAccumulator {
 
 	void totalBatchMaxBytes(long totalHoldSize) {
 		if (totalHoldSize <= 0) {
-			throw new IllegalArgumentException(String.format("totalBatchMaxBytes must bigger than 0, but get %d!", totalHoldSize))
+			throw new IllegalArgumentException(String.format("totalBatchMaxBytes must bigger than 0, but get %d!", totalHoldSize));
 		}
 		this.totalHoldSize = totalHoldSize;
 	}
@@ -102,7 +105,7 @@ public class ProduceAccumulator {
 		return asyncSendBatchs.computeIfAbsent(aggregateKey, k -> new MessageAccumulation(aggregateKey, defaultMQProducer));
 	}
 
-	SendResult send(Message msg, DefaultMQProducer defaultMQProducer) throws InterruptedException {
+	SendResult send(Message msg, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
 		AggregateKey partitionKey = new AggregateKey(msg);
 		while (true) {
 			MessageAccumulation batch = getOrCreateSyncSendBatch(partitionKey, defaultMQProducer);
@@ -116,7 +119,7 @@ public class ProduceAccumulator {
 		}
 	}
 
-	SendResult send(Message msg, MessageQueue mq, DefaultMQProducer defaultMQProducer) throws InterruptedException {
+	SendResult send(Message msg, MessageQueue mq, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
 		AggregateKey partitionKey = new AggregateKey(msg, mq);
 		while (true) {
 			MessageAccumulation batch = getOrCreateSyncSendBatch(partitionKey, defaultMQProducer);
@@ -315,7 +318,7 @@ public class ProduceAccumulator {
 			return this.messagesSize.get() > holdMs || System.currentTimeMillis() >= this.createTime + holdMs;
 		}
 
-		public int add(Message msg) throws InterruptedException {
+		public int add(Message msg) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
 			int ret = -1;
 			synchronized (this.closed) {
 				if (this.closed.get()) {
@@ -407,7 +410,7 @@ public class ProduceAccumulator {
 			}
 		}
 
-		private void send() {
+		private void send() throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
 			synchronized (this.closed) {
 				if (this.closed.getAndSet(true)) {
 					return;

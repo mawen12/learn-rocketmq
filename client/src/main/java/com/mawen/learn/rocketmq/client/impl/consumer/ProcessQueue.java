@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.mawen.learn.rocketmq.client.consumer.DefaultMQPushConsumer;
 import com.mawen.learn.rocketmq.common.message.MessageAccessor;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 import com.mawen.learn.rocketmq.common.message.MessageExt;

@@ -816,7 +816,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 		return this.mqClientFactory.getConsumerStatsManager();
 	}
 
-	public List<QueueTimeSpan> queryConsumeTimeSpan(final String topic) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException {
+	public List<QueueTimeSpan> queryConsumeTimeSpan(final String topic) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException, MQClientException {
 		List<QueueTimeSpan> queueTimeSpans = new ArrayList<>();
 		TopicRouteData routeData = this.mqClientFactory.getMqClientAPIImpl().getTopicRouteInfoFromNameServer(topic, 3000);
 		for (BrokerData brokerData : routeData.getBrokerDatas()) {
@@ -826,7 +826,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 		return queueTimeSpans;
 	}
 
-	public void tryResetRetryTopic(final List<MessageExt> msgs, String consumerGroup) {
+	public void tryResetPopRetryTopic(final List<MessageExt> msgs, String consumerGroup) {
 		String popRetryPrefix = MixAll.RETRY_GROUP_TOPIC_PREFIX + consumerGroup + "_";
 		msgs.stream()
 				.filter(msg -> msg.getTopic().startsWith(popRetryPrefix))

@@ -12,7 +12,7 @@ import lombok.Setter;
 @RequiredArgsConstructor
 @Setter
 @Getter
-public class ConsumerOrderlyContext {
+public class ConsumeOrderlyContext {
 	private final MessageQueue messageQueue;
 	private boolean autoCommit = true;
 	private long suspendCurrentQueueTimeMillis = -1;

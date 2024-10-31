@@ -10,7 +10,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 import com.mawen.learn.rocketmq.client.consumer.DefaultMQPushConsumer;
-import com.mawen.learn.rocketmq.client.consumer.listener.ConsumerOrderlyContext;
+import com.mawen.learn.rocketmq.client.consumer.listener.ConsumeOrderlyContext;
 import com.mawen.learn.rocketmq.client.consumer.listener.ConsumerOrderlyStatus;
 import com.mawen.learn.rocketmq.client.consumer.listener.MessageListenerOrderly;
 import com.mawen.learn.rocketmq.client.stat.ConsumerStatsManager;
@@ -80,7 +80,7 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 	public void start() {
 		if (MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
 			this.scheduledExecutorService.scheduleAtFixedRate(() -> {
-				lockMQperiodically();
+				lockMQPeriodically();
 			}, 1000, ProcessQueue.REBALANCE_LOCK_INTERVAL, TimeUnit.MILLISECONDS);
 		}
 	}
@@ -91,11 +91,11 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 		this.scheduledExecutorService.shutdown();
 		ThreadUtils.shutdownGracefully(this.consumeExecutor, awaitTerminateMillis, TimeUnit.MILLISECONDS);
 		if (MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
-			this.unlockAllMessageQueues();
+			unlockAllMessageQueues();
 		}
 	}
 
-	public synchronized void unlockAllMQ() {
+	public synchronized void unlockAllMessageQueues() {
 		this.defaultMQPushConsumerImpl.getRebalanceImpl().unlockAll(false);
 	}
 
@@ -133,9 +133,9 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 		mq.setTopic(msg.getTopic());
 		mq.setQueueId(msg.getQueueId());
 
-		ConsumerOrderlyContext context = new ConsumerOrderlyContext(mq);
+		ConsumeOrderlyContext context = new ConsumeOrderlyContext(mq);
 
-		this.defaultMQPushConsumerImpl.resetRetryAndNamespace(msg, this.consumerGroup);
+		this.defaultMQPushConsumerImpl.resetRetryAndNamespace(msgs, this.consumerGroup);
 
 		final long beginTime = System.currentTimeMillis();
 
@@ -200,7 +200,7 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 		consumeRequestSet.remove(request);
 	}
 
-	public boolean processConsumeResult(final List<MessageExt> msgs, final ConsumerOrderlyStatus status, final ConsumerOrderlyContext context, final ConsumeRequest consumeRequest) {
+	public boolean processConsumeResult(final List<MessageExt> msgs, final ConsumerOrderlyStatus status, final ConsumeOrderlyContext context, final ConsumeRequest consumeRequest) {
 		return true;
 	}
 
@@ -225,7 +225,7 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 
 			newMsg.setDelayTimeLevel(3 + msg.getReconsumeTimes());
 
-			this.defaultMQPushConsumerImpl.getMQClientFactory().getDefaultMQProducer().send(newMsg);
+			this.defaultMQPushConsumerImpl.getMqClientFactory().getDefaultMQProducer().send(newMsg);
 			return true;
 		}
 		catch (Exception e) {
@@ -298,7 +298,7 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 		public void run() {
 			if (this.processQueue.isDropped()) {
 				log.warn("run, message queue not be able to consume, because it's dropped. {}", this.messageQueue);
-				ConsumeMessagePopOrderlyService.class.removeConsumeRequest(this);
+				removeConsumeRequest(this);
 				return;
 			}
 

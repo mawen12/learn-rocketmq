@@ -883,7 +883,7 @@ public class MQClientInstance {
 				Long offset = offsetTable.get(mq);
 				if (topic.equals(mq.getTopic()) && offset != null) {
 					try {
-						consumer.updateConsumerOffset(mq, offset);
+						consumer.updateConsumeOffset(mq, offset);
 						consumer.getRebalanceImpl().removeUnnecessaryMessageQueue(mq, processQueueTable.get(mq));
 						iterator.remove();
 					}
@@ -1132,7 +1132,7 @@ public class MQClientInstance {
 		return false;
 	}
 
-	private boolean sendHeartbeatToAllBrokerV2(boolean isRebalance) {
+	public boolean sendHeartbeatToAllBrokerV2(boolean isRebalance) {
 		HeartbeatData heartbeatData = this.prepareHeartbeatData(false);
 		boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
 		boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();

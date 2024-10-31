@@ -603,7 +603,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 						producer.updateFaultItem(brokerName, System.currentTimeMillis() - beginStartTime, false, true);
 					}
 					catch (Exception e) {
-						producer.updateFaultItem(beginStartTime, System.currentTimeMillis() - beginStartTime, true, false);
+						producer.updateFaultItem(brokerName, System.currentTimeMillis() - beginStartTime, true, false);
 						onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, e, context, false, producer);
 					}
 				}
@@ -1670,15 +1670,15 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		throw new MQBrokerException(response.getCode(), response.getRemark());
 	}
 
-	public TopicRouteData getDefaultTopicRouteInfoFromNameServer(final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException {
+	public TopicRouteData getDefaultTopicRouteInfoFromNameServer(final long timeoutMillis) throws RemotingConnectException, MQClientException, InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
 		return getTopicRouteInfoFromNameServer(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC, timeoutMillis, false);
 	}
 
-	public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException {
+	public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis) throws RemotingConnectException, MQClientException, InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
 		return getTopicRouteInfoFromNameServer(topic, timeoutMillis, true);
 	}
 
-	public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis, boolean allowTopicNotExist) throws MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {
+	public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis, boolean allowTopicNotExist) throws RemotingConnectException, MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException {
 		GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
 		requestHeader.setTopic(topic);
 
@@ -1702,7 +1702,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 				break;
 		}
 
-		throw new MQBrokerException(response.getCode(), response.getRemark());
+		throw new MQClientException(response.getCode(), response.getRemark());
 	}
 
 	public TopicList getTopicListFromNameServer(final long timeoutMillis) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException {

@@ -1,6 +1,8 @@
 package com.mawen.learn.rocketmq.client.impl.producer;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -18,22 +20,29 @@ import java.util.concurrent.TimeUnit;
 
 import com.mawen.learn.rocketmq.client.QueryResult;
 import com.mawen.learn.rocketmq.client.Validators;
+import com.mawen.learn.rocketmq.client.common.ClientErrorCode;
+import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.hook.CheckForbiddenContext;
 import com.mawen.learn.rocketmq.client.hook.CheckForbiddenHook;
+import com.mawen.learn.rocketmq.client.hook.EndTransactionContext;
 import com.mawen.learn.rocketmq.client.hook.EndTransactionHook;
+import com.mawen.learn.rocketmq.client.hook.SendMessageContext;
 import com.mawen.learn.rocketmq.client.hook.SendMessageHook;
 import com.mawen.learn.rocketmq.client.impl.CommunicationMode;
 import com.mawen.learn.rocketmq.client.impl.MQClientManager;
 import com.mawen.learn.rocketmq.client.impl.factory.MQClientInstance;
 import com.mawen.learn.rocketmq.client.latency.MQFaultStrategy;
-import com.mawen.learn.rocketmq.client.latency.Resolver;
 import com.mawen.learn.rocketmq.client.latency.ServiceDetector;
 import com.mawen.learn.rocketmq.client.producer.DefaultMQProducer;
 import com.mawen.learn.rocketmq.client.producer.LocalTransactionState;
 import com.mawen.learn.rocketmq.client.producer.MessageQueueSelector;
+import com.mawen.learn.rocketmq.client.producer.RequestCallback;
 import com.mawen.learn.rocketmq.client.producer.RequestFutureHolder;
+import com.mawen.learn.rocketmq.client.producer.RequestResponseFuture;
 import com.mawen.learn.rocketmq.client.producer.SendCallback;
 import com.mawen.learn.rocketmq.client.producer.SendResult;
+import com.mawen.learn.rocketmq.client.producer.SendStatus;
 import com.mawen.learn.rocketmq.client.producer.TransactionCheckListener;
 import com.mawen.learn.rocketmq.client.producer.TransactionListener;
 import com.mawen.learn.rocketmq.client.producer.TransactionMQProducer;
@@ -46,16 +55,30 @@ import com.mawen.learn.rocketmq.common.compression.Compressor;
 import com.mawen.learn.rocketmq.common.compression.CompressorFactory;
 import com.mawen.learn.rocketmq.common.help.FAQUrl;
 import com.mawen.learn.rocketmq.common.message.Message;
+import com.mawen.learn.rocketmq.common.message.MessageAccessor;
+import com.mawen.learn.rocketmq.common.message.MessageBatch;
+import com.mawen.learn.rocketmq.common.message.MessageClientIDSetter;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
+import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
+import com.mawen.learn.rocketmq.common.message.MessageType;
 import com.mawen.learn.rocketmq.common.sysflag.MessageSysFlag;
 import com.mawen.learn.rocketmq.remoting.RPCHook;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
+import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.header.CheckTransactionStateRequestHeader;
 import com.mawen.learn.rocketmq.remoting.protocol.header.EndTransactionRequestHeader;
+import com.mawen.learn.rocketmq.remoting.protocol.header.SendMessageRequestHeader;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
@@ -63,8 +86,9 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/18
  */
+@Setter
 @Getter
-public class DefaultMQProducerImpl implements MQProducerInner{
+public class DefaultMQProducerImpl implements MQProducerInner {
 
 	private final Logger log = LoggerFactory.getLogger(DefaultMQProducerImpl.class);
 
@@ -263,6 +287,7 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		}
 	}
 
+
 	@Override
 	public Set<String> getPublishTopicList() {
 		return new HashSet<>(this.topicPublishInfoTable.keySet());
@@ -296,7 +321,7 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 			private final String brokerAddr = addr;
 			private final MessageExt message = msg;
 			private final CheckTransactionStateRequestHeader requestHeader = checkRequestHeader;
-			private final String group = DefaultMQProducerImpl.this.defaultMQProducer.getProducerGruop();
+			private final String group = DefaultMQProducerImpl.this.defaultMQProducer.getProducerGroup();
 
 			@Override
 			public void run() {
@@ -392,6 +417,172 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		return this.defaultMQProducer.isUnitMode();
 	}
 
+	public Message request(Message msg, long timeout) throws MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		long begin = System.currentTimeMillis();
+		prepareSendRequest(msg, timeout);
+		String correlationId = msg.getProperty(MessageConst.PROPERTY_CORRELATION_ID);
+
+		try {
+			RequestResponseFuture requestResponseFuture = new RequestResponseFuture(correlationId, timeout, null);
+			RequestFutureHolder.getInstance().getRequestFutureTable().put(correlationId, requestResponseFuture);
+
+			long cost = System.currentTimeMillis() - begin;
+			sendDefaultImpl(msg, CommunicationMode.ASYNC, new SendCallback() {
+				@Override
+				public void onSuccess(SendResult sendResult) {
+					requestResponseFuture.setSendRequestOk(true);
+				}
+
+				@Override
+				public void onException(Throwable e) {
+					requestResponseFuture.setSendRequestOk(false);
+					requestResponseFuture.putResponseMessage(null);
+					requestResponseFuture.setCause(e);
+				}
+			}, timeout - cost);
+
+			return waitResponse(msg, timeout, requestResponseFuture, cost);
+		}
+		finally {
+			RequestFutureHolder.getInstance().getRequestFutureTable().remove(correlationId);
+		}
+	}
+
+	public void request(Message msg, RequestCallback requestCallback, long timeout) {
+		long begin = System.currentTimeMillis();
+		prepareSendRequest(msg, timeout);
+		String correlationId = msg.getProperty(MessageConst.PROPERTY_CORRELATION_ID);
+
+		RequestResponseFuture requestResponseFuture = new RequestResponseFuture(correlationId, timeout, requestCallback);
+		RequestFutureHolder.getInstance().getRequestFutureTable().put(correlationId, requestResponseFuture);
+
+		long cost = System.currentTimeMillis() - begin;
+		sendDefaultImpl(msg, CommunicationMode.ASYNC, new SendCallback() {
+			@Override
+			public void onSuccess(SendResult sendResult) {
+				requestResponseFuture.setSendRequestOk(true);
+				requestResponseFuture.executeRequestCallback();
+			}
+
+			@Override
+			public void onException(Throwable e) {
+				requestResponseFuture.setCause(e);
+				requestFail(correlationId);
+			}
+		}, timeout - cost);
+	}
+
+	public Message request(Message msg, MessageQueueSelector selector, Object arg, long timeout) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		long begin = System.currentTimeMillis();
+		prepareSendRequest(msg, timeout);
+		String correlationId = msg.getProperty(MessageConst.PROPERTY_CORRELATION_ID);
+
+		try {
+			RequestResponseFuture requestResponseFuture = new RequestResponseFuture(correlationId, timeout, null);
+			RequestFutureHolder.getInstance().getRequestFutureTable().put(correlationId, requestResponseFuture);
+
+			long cost = System.currentTimeMillis() - begin;
+			sendSelectImpl(msg, selector, arg, CommunicationMode.ASYNC, new SendCallback() {
+				@Override
+				public void onSuccess(SendResult sendResult) {
+					requestResponseFuture.setSendRequestOk(true);
+				}
+
+				@Override
+				public void onException(Throwable e) {
+					requestResponseFuture.setSendRequestOk(false);
+					requestResponseFuture.putResponseMessage(null);
+					requestResponseFuture.setCause(e);
+				}
+			}, timeout - cost);
+
+			return waitResponse(msg, timeout, requestResponseFuture, cost);
+		}
+		finally {
+			RequestFutureHolder.getInstance().getRequestFutureTable().remove(correlationId);
+		}
+	}
+
+	public void request(Message msg, MessageQueueSelector selector, Object arg, final RequestCallback requestCallback, final long timeout) {
+		long begin = System.currentTimeMillis();
+		prepareSendRequest(msg, timeout);
+	}
+
+
+	public boolean hasCheckForbiddenHook() {
+		return !checkForbiddenHookList.isEmpty();
+	}
+
+	public void executeCheckForbiddenHook(final CheckForbiddenContext context) throws MQClientException {
+		if (hasEndTransactionHook()) {
+			for (CheckForbiddenHook hook : checkForbiddenHookList) {
+				hook.checkForbidden(context);
+			}
+		}
+	}
+
+	public boolean hasSendMessageHook() {
+		return !sendMessageHookList.isEmpty();
+	}
+
+	public void executeSendMessageHookBefore(final SendMessageContext context) {
+		if (hasSendMessageHook()) {
+			for (SendMessageHook hook : sendMessageHookList) {
+				try {
+					hook.sendMessageBefore(context);
+				}
+				catch (Throwable e) {
+					log.warn("failed to executeSendMessageHookBefore", e);
+				}
+			}
+		}
+	}
+
+	public void executeSendMessageHookAfter(final SendMessageContext context) {
+		if (hasSendMessageHook()) {
+			for (SendMessageHook hook : sendMessageHookList) {
+				try {
+					hook.sendMessageAfter(context);
+				}
+				catch (Throwable e) {
+					log.warn("failed to executeSendMessageHookAfter", e);
+				}
+			}
+		}
+	}
+
+	public boolean hasEndTransactionHook() {
+		return !this.endTransactionHookList.isEmpty();
+	}
+
+	public void executeEndTransactionHook(final EndTransactionContext context) {
+		if (hasEndTransactionHook()) {
+			for (EndTransactionHook hook : endTransactionHookList) {
+				try {
+					hook.endTransaction(context);
+				}
+				catch (Throwable e) {
+					log.warn("failed to executeEndTransactionHook", e);
+				}
+			}
+		}
+	}
+
+	public void doExecuteEndTransactionHook(Message msg, String msgId, String brokerAddr, LocalTransactionState state, boolean fromTransactionCheck) {
+		if (hasEndTransactionHook()) {
+			EndTransactionContext context = new EndTransactionContext();
+			context.setProducerGroup(defaultMQProducer.getProducerGroup());
+			context.setBrokerAddr(brokerAddr);
+			context.setMessage(msg);
+			context.setMsgId(msgId);
+			context.setTransactionId(msg.getTransactionId());
+			context.setTransactionState(state);
+			context.setFromTransactionCheck(fromTransactionCheck);
+
+			executeEndTransactionHook(context);
+		}
+	}
+
 	public void createTopic(String key, String newTopic, int queueNum) throws MQClientException {
 		createTopic(key, newTopic, queueNum, 0);
 	}
@@ -444,11 +635,122 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		return this.mqClientFactory.getMqAdminImpl().queryMessageByUniqKey(topic, uniqKey);
 	}
 
-	public void send(Message msg, SendCallback callback) {
+	public SendResult send(Message msg) throws MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return send(msg, defaultMQProducer.getSendMsgTimeout());
+	}
+
+	public SendResult send(Message msg, MessageQueue mq) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return send(msg, mq, defaultMQProducer.getSendMsgTimeout());
+	}
+
+	public SendResult send(Message msg, long timeout) throws MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return sendDefaultImpl(msg, CommunicationMode.SYNC, null, timeout);
+	}
+
+	public SendResult send(Message msg, MessageQueue mq, long timeout) throws MQClientException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException {
+		long begin = System.currentTimeMillis();
+		makeSureStateOK();
+		Validators.checkMessage(msg, defaultMQProducer);
+
+		if (!msg.getTopic().equals(mq.getTopic())) {
+			throw new MQClientException("message's topic not equal mq's topic", null);
+		}
+
+		long cost = System.currentTimeMillis() - begin;
+		if (timeout < cost) {
+			throw new RemotingTooMuchRequestException("call timeout");
+		}
+
+		return sendKernelImpl(msg, mq, CommunicationMode.SYNC, null, null, timeout);
+	}
+
+	public SendResult send(Message msg, MessageQueueSelector selector, Object arg) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return send(msg, selector, arg, defaultMQProducer.getSendMsgTimeout());
+	}
+
+	public SendResult send(Message msg, MessageQueueSelector selector, Object arg, long timeout) throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException {
+		return sendSelectImpl(msg, selector, arg, CommunicationMode.SYNC, null, timeout);
+	}
+
+	private SendResult sendSelectImpl(Message msg, MessageQueueSelector selector, Object arg, CommunicationMode communicationMode, final SendCallback sendCallback, final long timeout) throws MQClientException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException {
+		long begin = System.currentTimeMillis();
+		makeSureStateOK();
+		Validators.checkMessage(msg, defaultMQProducer);
+
+		TopicPublishInfo info = tryToFindTopicPublishInfo(msg.getTopic());
+		if (info != null && info.ok()) {
+			MessageQueue mq = null;
+			try {
+				List<MessageQueue> mqs = mqClientFactory.getMqAdminImpl().parsePublishMessageQueues(info.getMessageQueueList());
+				Message userMessage = MessageAccessor.cloneMessage(msg);
+				String userTopic = NamespaceUtil.withoutNamespace(userMessage.getTopic(), mqClientFactory.getClientConfig().getNamespace());
+				userMessage.setTopic(userTopic);
+
+				mq = mqClientFactory.getClientConfig().queueWithNamespace(selector.select(mqs, userMessage, arg));
+			}
+			catch (Throwable e) {
+				throw new MQClientException("select message queue threw exception", e);
+			}
+
+			long cost = System.currentTimeMillis() - begin;
+			if (timeout < cost) {
+				throw new RemotingTooMuchRequestException("sendSelectImpl call timeout");
+			}
+			if (mq != null) {
+				return sendKernelImpl(msg, mq, communicationMode, sendCallback, null, timeout - cost);
+			}
+			else {
+				throw new MQClientException("select message queue return null", null);
+			}
+		}
+
+		validateNameServerSetting();
+
+		throw new MQClientException("No route info for this topic, " + msg.getTopic(), null);
+	}
+
+	public void send(Message msg, SendCallback callback) throws InterruptedException, MQClientException {
 		send(msg, callback, this.defaultMQProducer.getSendMsgTimeout());
 	}
 
-	public void send(final Message msg, final SendCallback callback, final long timeoutMillis) {
+	public void send(Message msg, MessageQueue mq, SendCallback sendCallback) throws InterruptedException, MQClientException {
+		send(msg, mq, sendCallback, defaultMQProducer.getSendMsgTimeout());
+	}
+
+	public void send(Message msg, MessageQueue mq, SendCallback sendCallback, long timeout) throws InterruptedException, MQClientException {
+		BackpressureSendCallback newCallback = new BackpressureSendCallback(sendCallback);
+		long begin = System.currentTimeMillis();
+		Runnable runnable = () -> {
+			try {
+				makeSureStateOK();
+				Validators.checkMessage(msg, defaultMQProducer);
+
+				if (!msg.getTopic().equals(mq.getTopic())) {
+					throw new MQClientException("Topic of the message does not match its target message queue", null);
+				}
+
+				long cost = System.currentTimeMillis() - begin;
+				if (timeout > cost) {
+					try {
+						sendKernelImpl(msg, mq, CommunicationMode.ASYNC, sendCallback, null, timeout - cost);
+					}
+					catch (MQBrokerException e) {
+						throw new MQClientException("unknown exception", e);
+					}
+				}
+				else {
+					newCallback.onException(new RemotingTooMuchRequestException("call timeout"));
+				}
+			}
+			catch (Exception e) {
+				newCallback.onException(e);
+			}
+		};
+
+		executeAsyncMessageSend(runnable, msg, newCallback, timeout, begin);
+	}
+
+	public void send(final Message msg, final SendCallback callback, final long timeoutMillis) throws MQClientException, InterruptedException {
 		BackpressureSendCallback newCallback = new BackpressureSendCallback(callback);
 
 		final long begin = System.currentTimeMillis();
@@ -470,7 +772,7 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		executeAsyncMessageSend(runnable, msg, newCallback, timeoutMillis, begin);
 	}
 
-	public void executeAsyncMessageSend(Runnable runnable, final Message msg, final BackpressureSendCallback callback, final long timeout, final long begin) throws MQClientException {
+	public void executeAsyncMessageSend(Runnable runnable, final Message msg, final BackpressureSendCallback callback, final long timeout, final long begin) throws MQClientException, InterruptedException {
 		ExecutorService executor = this.getAsyncSenderExecutor();
 		boolean isEnableBackpressureForAsyncMode = this.getDefaultMQProducer().isEnableBackpressureForAsyncMode();
 		boolean isSemaphoreAsyncNumAcquired = false;
@@ -509,9 +811,469 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		}
 	}
 
-	public MessageQueue invokeMessageQueueSelector(Message msg, MessageQueueSelector selector, Object arg, final long timeout) {
+	public MessageQueue invokeMessageQueueSelector(Message msg, MessageQueueSelector selector, Object arg, final long timeout) throws MQClientException, RemotingTooMuchRequestException {
 		long begin = System.currentTimeMillis();
+		makeSureStateOK();
+		Validators.checkMessage(msg, defaultMQProducer);
 
+		TopicPublishInfo info = tryToFindTopicPublishinfo(msg.getTopic());
+		if (info != null && info.ok()) {
+			MessageQueue mq = null;
+			try {
+				List<MessageQueue> messageQueueList = mqClientFactory.getMqAdminImpl().parsePublishMessageQueues(info.getMessageQueueList());
+				Message userMessage = MessageAccessor.cloneMessage(msg);
+				String userTopic = NamespaceUtil.withoutNamespace(userMessage.getTopic(), mqClientFactory.getClientConfig().getNamespace());
+				userMessage.setTopic(userTopic);
+
+				mq = mqClientFactory.getClientConfig().queueWithNamespace(selector.select(messageQueueList, userMessage, arg));
+			}
+			catch (Throwable e) {
+				throw new MQClientException("select message queue throw exception.", e);
+			}
+
+			long cost = System.currentTimeMillis() - begin;
+			if (timeout < cost) {
+				throw new RemotingTooMuchRequestException("sendSelectImpl call timeout");
+			}
+			if (mq != null) {
+				return mq;
+			}
+			else {
+				throw new MQClientException("select message queue return null", null);
+			}
+		}
+
+		validateNameServerSetting();
+		throw new MQClientException("No route info for this topic, " + msg.getTopic(), null);
+	}
+
+	public MessageQueue selectOneMessageQueue(final TopicPublishInfo info, final String lastBrokerName, final boolean resetIndex) {
+		return mqFaultStrategy.selectOneMessageQueue(info, lastBrokerName, resetIndex);
+	}
+
+	public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation, boolean reachable) {
+		mqFaultStrategy.updateFaultItem(brokerName, currentLatency, isolation, reachable);
+	}
+
+	public void setCallbackExecutor(final ExecutorService executor) {
+		mqClientFactory.getMqClientAPIImpl().getRemotingClient().setCallbackExecutor(executor);
+	}
+
+	public long[] getNotAvailableDuration() {
+		return mqFaultStrategy.getNotAvailableDuration();
+	}
+
+	public void setNotAvailableDuration(final long[] notAvailableDuration) {
+		mqFaultStrategy.setNotAvailableDuration(notAvailableDuration);
+	}
+
+	public long[] getLatencyMax() {
+		return mqFaultStrategy.getLatencyMax();
+	}
+
+	public void setLatencyMax(final long[] latencyMax) {
+		mqFaultStrategy.setLatencyMax(latencyMax);
+	}
+
+	public boolean isSendLatencyFaultEnable() {
+		return mqFaultStrategy.isSendLatencyFaultEnable();
+	}
+
+	public void setSendLatencyFaultEnable(boolean sendLatencyFaultEnable) {
+		mqFaultStrategy.setSendLatencyFaultEnable(sendLatencyFaultEnable);
+	}
+
+	private void validateNameServerSetting() throws MQClientException {
+		List<String> nsList = getMqClientFactory().getMqClientAPIImpl().getNameServerAddressList();
+		if (CollectionUtils.isEmpty(nsList)) {
+			throw new MQClientException("No name server address, please set it." + FAQUrl.suggestTodo(FAQUrl.NAME_SERVER_ADDR_NOT_EXIST_URL), null);
+		}
+	}
+
+	private TopicPublishInfo tryToFindTopicPublishinfo(final String topic) {
+		TopicPublishInfo info = topicPublishInfoTable.get(topic);
+		if (info == null || !info.ok()) {
+			topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+			mqClientFactory.updateTopicRouteInfoFromNameServer(topic);
+			info = topicPublishInfoTable.get(topic);
+		}
+
+		if (info.isHaveTopicRouterInfo() || info.ok()) {
+			return info;
+		}
+		else {
+			mqClientFactory.updateTopicRouteInfoFromNameServer(topic, true, defaultMQProducer);
+			info = topicPublishInfoTable.get(topic);
+			return info;
+		}
+	}
+
+	private SendResult sendDefaultImpl(Message msg, final CommunicationMode communicationMode, final SendCallback sendCallback, final long timeout) throws MQClientException, RemotingTooMuchRequestException, MQBrokerException, InterruptedException {
+		makeSureStateOK();
+		Validators.checkMessage(msg, defaultMQProducer);
+		long invokeID = random.nextLong();
+		long beginFirst = System.currentTimeMillis();
+		long beginPrev = beginFirst;
+		long end = beginFirst;
+
+		TopicPublishInfo info = tryToFindTopicPublishInfo(msg.getTopic());
+		if (info != null && info.ok()) {
+			boolean callTimeout = false;
+			MessageQueue mq = null;
+			Exception exception = null;
+			SendResult sendResult = null;
+			int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
+			int times = 0;
+			String[] brokersSent = new String[timesTotal];
+			boolean resetIndex = false;
+
+			for (; times < timesTotal; times++) {
+				String lastBrokerName = mq == null ? null : mq.getBrokerName();
+				if (times >= 0) {
+					resetIndex = true;
+				}
+
+				MessageQueue mqSelected = selectOneMessageQueue(info, lastBrokerName, resetIndex);
+				if (mqSelected != null) {
+					mq = mqSelected;
+					brokersSent[times] = mq.getBrokerName();
+					try {
+						beginPrev = System.currentTimeMillis();
+						if (times >= 0) {
+							msg.setTopic(defaultMQProducer.withNamespace(msg.getTopic()));
+						}
+						long cost = beginPrev - beginFirst;
+						if (timeout < cost) {
+							callTimeout = true;
+							break;
+						}
+
+						sendResult = sendKernelImpl(msg, mq, communicationMode, sendCallback, info, timeout - cost);
+						end = System.currentTimeMillis();
+						updateFaultItem(mq.getBrokerName(), end - beginPrev, false, true);
+						switch (communicationMode) {
+							case ASYNC:
+								return null;
+							case ONEWAY:
+								return null;
+							case SYNC:
+								if (sendResult.getSendStatus() != SendStatus.SEND_OK) {
+									if (defaultMQProducer.isRetryAnotherBrokerWhenNotStoreOK()) {
+										continue;
+									}
+								}
+
+								return sendResult;
+							default:
+								break;
+						}
+					}
+					catch (MQClientException e) {
+						end = System.currentTimeMillis();
+						updateFaultItem(mq.getBrokerName(), end - beginPrev, false, true);
+						log.warn("sendKernelImpl exception, resend at once, InvokeID: {}, RT: {}ms, Broker: {}",
+								invokeID, end - beginPrev, mq, e);
+						log.warn(msg.toString());
+						exception = e;
+						continue;
+					}
+					catch (RemotingException e) {
+						end = System.currentTimeMillis();
+						if (mqFaultStrategy.isStartDetectorEnable()) {
+							updateFaultItem(mq.getBrokerName(), end - beginPrev, true, false);
+						}
+						else {
+							updateFaultItem(mq.getBrokerName(), end - beginPrev, true, true);
+						}
+
+						log.warn("sendKernelImpl exception, resend at once, InovkeID: {}, RT: {}ms, Broker: {}",
+								invokeID, end - beginPrev, mq, e);
+						if (log.isDebugEnabled()) {
+							log.debug(msg.toString());
+						}
+						exception = e;
+						continue;
+					}
+					catch (MQBrokerException e) {
+						end = System.currentTimeMillis();
+						updateFaultItem(mq.getBrokerName(), end - beginPrev, true, false);
+						log.warn("sendKernelImpl exception, resend at once, InvokeID: {}, RT: {}ms, Broker: {}",
+								invokeID, end - beginPrev, mq, e);
+						if (log.isDebugEnabled()) {
+							log.debug(msg.toString());
+						}
+						exception = e;
+						if (defaultMQProducer.getRetryResponseCodes().contains(e.getResponseCode())) {
+							continue;
+						}
+						else {
+							if (sendResult != null) {
+								return sendResult;
+							}
+							throw e;
+						}
+					}
+					catch (InterruptedException e) {
+						end = System.currentTimeMillis();
+						updateFaultItem(mq.getBrokerName(), end - beginPrev, false, true);
+						log.warn("sendKernelImpl exception, throw exception, InvokeID: {}, RT: {}ms, Broker: {}",
+								invokeID, end - beginPrev, mq, e);
+						if (log.isDebugEnabled()) {
+							log.debug(msg.toString());
+						}
+						throw e;
+					}
+				}
+				else {
+					break;
+				}
+			}
+
+			if (sendResult != null) {
+				return sendResult;
+			}
+			String errMsg = String.format("Send [%s] times, still failed, cost [%d]ms, Topic: %s, BrokerSent: %s",
+					times, System.currentTimeMillis() - beginFirst, msg.getTopic(), Arrays.toString(brokersSent));
+			errMsg += FAQUrl.suggestTodo(FAQUrl.SEND_MSG_FAILED);
+
+			if (callTimeout) {
+				throw new RemotingTooMuchRequestException("sendDefaultImpl call timeout");
+			}
+
+			MQClientException mqClientException = new MQClientException(errMsg, exception);
+
+			if (exception instanceof MQBrokerException) {
+				mqClientException.setResponseCode(((MQBrokerException) exception).getResponseCode());
+			}
+			else if (exception instanceof RemotingConnectException) {
+				mqClientException.setResponseCode(ClientErrorCode.CONNECT_BROKER_EXCEPTION);
+			}
+			else if (exception instanceof RemotingTimeoutException) {
+				mqClientException.setResponseCode(ClientErrorCode.ACCESS_BROKER_TIMEOUT);
+			}
+			else if (exception instanceof MQClientException) {
+				mqClientException.setResponseCode(ClientErrorCode.BROKER_NOT_EXIST_EXCEPTION);
+			}
+
+			throw mqClientException;
+		}
+
+		validateNameServerSetting();
+
+		throw new MQClientException(ClientErrorCode.NOT_FOUND_TOPIC_EXCEPTION, "No route info of this topic: " + msg.getTopic() + FAQUrl.suggestTodo(FAQUrl.NO_TOPIC_ROUTE_INFO), null);
+	}
+
+	private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
+		TopicPublishInfo info = topicPublishInfoTable.get(topic);
+		if (info == null || !info.ok()) {
+			topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+			mqClientFactory.updateTopicRouteInfoFromNameServer(topic);
+			info = topicPublishInfoTable.get(topic);
+		}
+
+		if (info.isHaveTopicRouterInfo() || info.ok()) {
+			return info;
+		}
+		else {
+			mqClientFactory.updateTopicRouteInfoFromNameServer(topic, true, defaultMQProducer);
+			return topicPublishInfoTable.get(topic);
+		}
+	}
+
+	private SendResult sendKernelImpl(final Message msg, final MessageQueue mq, final CommunicationMode communicationMode, final SendCallback sendCallback, final TopicPublishInfo topicPublishInfo, final long timeout) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException, MQBrokerException, InterruptedException, RemotingTooMuchRequestException {
+		long begin = System.currentTimeMillis();
+		String brokerName = mqClientFactory.getBrokerNameFromMessageQueue(mq);
+		String brokerAddr = mqClientFactory.findBrokerAddressInPublish(brokerName);
+		if (brokerAddr == null) {
+			tryToFindTopicPublishinfo(mq.getTopic());
+			brokerName = mqClientFactory.getBrokerNameFromMessageQueue(mq);
+			brokerAddr = mqClientFactory.findBrokerAddressInPublish(brokerName);
+		}
+
+		SendMessageContext context = null;
+		if (brokerAddr != null) {
+			brokerAddr = MixAll.brokerVIPChannel(defaultMQProducer.isSendMessageWithVIPChannel(), brokerAddr);
+
+			byte[] preBody = msg.getBody();
+			try {
+				if (!(msg instanceof MessageBatch)) {
+					MessageClientIDSetter.setUniqID(msg);
+				}
+
+				boolean topicWithNamespace = false;
+				if (mqClientFactory.getClientConfig().getNamespace() != null) {
+					msg.setInstanceId(mqClientFactory.getClientConfig().getNamespace());
+					topicWithNamespace = true;
+				}
+
+				int sysFlag = 0;
+				boolean msgBodyCompressed = false;
+				if (tryToCompressMessage(msg)) {
+					sysFlag |= MessageSysFlag.COMPRESSED_FLAG;
+					sysFlag |= compressType.getCompressionFlag();
+					msgBodyCompressed = true;
+				}
+
+				String tranMsg = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
+				if (Boolean.parseBoolean(tranMsg)) {
+					sysFlag |= MessageSysFlag.TRANSACTION_PREPARED_TYPE;
+				}
+
+				if (hasCheckForbiddenHook()) {
+					CheckForbiddenContext forbiddenContext = new CheckForbiddenContext();
+					forbiddenContext.setNameSrvAddr(defaultMQProducer.getNamesrvAddr());
+					forbiddenContext.setGroup(defaultMQProducer.getProducerGroup());
+					forbiddenContext.setCommunicationMode(communicationMode);
+					forbiddenContext.setBrokerAddr(brokerAddr);
+					forbiddenContext.setMessage(msg);
+					forbiddenContext.setMq(mq);
+					forbiddenContext.setUnitMode(isUnitMode());
+
+					executeCheckForbiddenHook(forbiddenContext);
+				}
+
+				if (hasSendMessageHook()) {
+					context = new SendMessageContext();
+					context.setProducer(this);
+					context.setProducerGroup(defaultMQProducer.getProducerGroup());
+					context.setCommunicationMode(communicationMode);
+					context.setBornHost(defaultMQProducer.getClientIP());
+					context.setBrokerAddr(brokerAddr);
+					context.setMessage(msg);
+					context.setMq(mq);
+					context.setNamespace(defaultMQProducer.getNamespace());
+
+					if (tranMsg != null && tranMsg.equals("true")) {
+						context.setMsgType(MessageType.Trans_Msg_Half);
+					}
+
+					if (msg.getProperty("__STARTDELIVERTIME") != null && msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_LEVEL) != null) {
+						context.setMsgType(MessageType.Delay_Msg);
+					}
+					executeSendMessageHookBefore(context);
+				}
+
+				SendMessageRequestHeader requestHeader = new SendMessageRequestHeader();
+				requestHeader.setProducerGroup(defaultMQProducer.getProducerGroup());
+				requestHeader.setTopic(msg.getTopic());
+				requestHeader.setDefaultTopic(defaultMQProducer.getCreateTopicKey());
+				requestHeader.setDefaultTopicQueueNums(defaultMQProducer.getDefaultTopicQueueNums());
+				requestHeader.setQueueId(mq.getQueueId());
+				requestHeader.setSysFlag(sysFlag);
+				requestHeader.setBornTimestamp(System.currentTimeMillis());
+				requestHeader.setFlag(msg.getFlag());
+				requestHeader.setProperties(MessageDecoder.messageProperties2String(msg.getProperties()));
+				requestHeader.setReconsumeTimes(0);
+				requestHeader.setUnitMode(isUnitMode());
+				requestHeader.setBatch(msg instanceof MessageBatch);
+				requestHeader.setBrokerName(brokerName);
+
+				if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+					String reconsumeTime = MessageAccessor.getReconsumeTime(msg);
+					if (reconsumeTime != null) {
+						requestHeader.setReconsumeTimes(Integer.valueOf(reconsumeTime));
+						MessageAccessor.clearProperty(msg, MessageConst.PROPERTY_RECONSUME_TIME);
+					}
+
+					String maxReconsumeTimes = MessageAccessor.getMaxReconsumeTimes(msg);
+					if (maxReconsumeTimes != null) {
+						requestHeader.setMaxReconsumeTimes(Integer.valueOf(maxReconsumeTimes));
+						MessageAccessor.clearProperty(msg, MessageConst.PROPERTY_MAX_RECONSUME_TIMES);
+					}
+				}
+
+				SendResult sendResult = null;
+				switch (communicationMode) {
+					case ASYNC: {
+						Message tmpMessage = msg;
+						boolean messageCloned = false;
+						if (msgBodyCompressed) {
+							tmpMessage = MessageAccessor.cloneMessage(msg);
+							messageCloned = true;
+							msg.setBody(preBody);
+						}
+
+						if (topicWithNamespace) {
+							if (!messageCloned) {
+								tmpMessage = MessageAccessor.cloneMessage(msg);
+								messageCloned = true;
+							}
+							msg.setTopic(NamespaceUtil.withoutNamespace(msg.getTopic(), defaultMQProducer.getNamespace()));
+						}
+
+						long cost = System.currentTimeMillis() - begin;
+						if (timeout < cost) {
+							throw new RemotingTooMuchRequestException("sendKernelImpl call timeout");
+						}
+
+						sendResult = mqClientFactory.getMqClientAPIImpl().sendMessage(brokerAddr, brokerName, tmpMessage, requestHeader, timeout - cost,
+								communicationMode, sendCallback, topicPublishInfo, mqClientFactory, defaultMQProducer.getRetryTimesWhenSendAsyncFailed(), context, this);
+						break;
+					}
+					case ONEWAY:
+					case SYNC: {
+						long cost = System.currentTimeMillis() - begin;
+						if (timeout < cost) {
+							throw new RemotingTooMuchRequestException("sendKernelImpl call timeout");
+						}
+
+						sendResult = mqClientFactory.getMqClientAPIImpl().sendMessage(brokerAddr, brokerName, msg, requestHeader, timeout - cost,
+								communicationMode, context, this);
+						break;
+					}
+					default:
+						assert false;
+						break;
+				}
+
+				if (hasSendMessageHook()) {
+					context.setSendResult(sendResult);
+					executeSendMessageHookAfter(context);
+				}
+
+				return sendResult;
+			}
+			catch (RemotingException | InterruptedException | MQBrokerException e) {
+				if (hasSendMessageHook()) {
+					context.setException(e);
+					executeSendMessageHookAfter(context);
+				}
+				throw e;
+			}
+			finally {
+				msg.setBody(preBody);
+				msg.setTopic(NamespaceUtil.withoutNamespace(msg.getTopic(), defaultMQProducer.getNamespace()));
+			}
+		}
+
+		throw new MQClientException("The broker[" + brokerName + "] not exist", null);
+	}
+
+	private boolean tryToCompressMessage(final Message msg) {
+		if (msg instanceof MessageBatch) {
+			return false;
+		}
+
+		byte[] body = msg.getBody();
+		if (body != null) {
+			if (body.length > defaultMQProducer.getCompressMsgBodyOverHowmuch()) {
+				try {
+					byte[] data = compressor.compress(body, compressLevel);
+					if (data != null) {
+						msg.setBody(data);
+						return true;
+					}
+				}
+				catch (IOException e) {
+					log.error("tryToCompressMessage exception", e);
+					if (log.isDebugEnabled()) {
+						log.debug(msg.toString());
+					}
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private Optional<String> pickTopic() {
@@ -525,13 +1287,26 @@ public class DefaultMQProducerImpl implements MQProducerInner{
 		Validators.checkGroup(this.defaultMQProducer.getProducerGroup());
 
 		if (this.defaultMQProducer.getProducerGroup().equals(MixAll.DEFAULT_PRODUCER_GROUP)) {
-			throw new MQClientException("producerGroup can not equal " + MixAll.DEFAULT_PRODUCER_GROUP + ", please specify another one.", null)
+			throw new MQClientException("producerGroup can not equal " + MixAll.DEFAULT_PRODUCER_GROUP + ", please specify another one.", null);
 		}
 	}
 
 	private void makeSureStateOK() throws MQClientException {
 		if (this.serviceState != ServiceState.RUNNING) {
 			throw new MQClientException("The producer service state not OK, " + this.serviceState + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK), null);
+		}
+	}
+
+	private void initTopicRoute() {
+		List<String> topics = defaultMQProducer.getTopics();
+		if (CollectionUtils.isNotEmpty(topics)) {
+			topics.forEach(topic -> {
+				String newTopic = NamespaceUtil.wrapNamespace(defaultMQProducer.getNamespace(), topic);
+				TopicPublishInfo info = tryToFindTopicPublishInfo(topic);
+				if (info == null || !info.ok()) {
+					log.warn("No route info of this topic: {}{}", topic, FAQUrl.suggestTodo(FAQUrl.NO_TOPIC_ROUTE_INFO));
+				}
+			});
 		}
 	}
 

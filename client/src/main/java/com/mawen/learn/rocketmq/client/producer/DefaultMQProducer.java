@@ -28,7 +28,12 @@ import com.mawen.learn.rocketmq.common.message.MessageExt;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.common.topic.TopicValidator;
 import com.mawen.learn.rocketmq.remoting.RPCHook;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
 import lombok.Getter;
 import lombok.Setter;
@@ -346,7 +351,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 	@Override
 	public Message request(Message msg, MessageQueueSelector selector, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
 		msg.setTopic(withNamespace(msg.getTopic()));
-		return this.defaultMQProducerImpl.request(msg, selector, timeout);
+		return defaultMQProducerImpl.request(msg, selector, timeout);
 	}
 
 	@Override
@@ -398,6 +403,26 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 		catch (Exception ignored) {
 		}
 		return this.defaultMQProducerImpl.queryMessageByUniqKey(withNamespace(topic), msgId);
+	}
+
+	public SendResult sendDirect(Message msg, MessageQueue mq, SendCallback sendCallback) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
+		if (sendCallback == null) {
+			if (mq == null) {
+				return defaultMQProducerImpl.send(msg);
+			}
+			else {
+				return defaultMQProducerImpl.send(msg, mq);
+			}
+		}
+		else {
+			if (mq == null) {
+				defaultMQProducerImpl.send(msg, sendCallback);
+			}
+			else {
+				defaultMQProducerImpl.send(msg, mq, sendCallback);
+			}
+			return null;
+		}
 	}
 
 	public void setCallbackExecutor(final ExecutorService callbackExecutor) {
