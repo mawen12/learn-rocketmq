@@ -5,6 +5,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
+import com.google.common.base.Strings;
 import com.mawen.learn.rocketmq.client.ClientConfig;
 import com.mawen.learn.rocketmq.client.common.NameserverAccessConfig;
 import com.mawen.learn.rocketmq.client.impl.ClientRemotingProcessor;
@@ -12,7 +13,6 @@ import com.mawen.learn.rocketmq.common.MixAll;
 import com.mawen.learn.rocketmq.common.utils.StartAndShutdown;
 import com.mawen.learn.rocketmq.remoting.RPCHook;
 import com.mawen.learn.rocketmq.remoting.netty.NettyClientConfig;
-import jdk.internal.joptsimple.internal.Strings;
 import org.apache.commons.lang3.StringUtils;
 
 /**

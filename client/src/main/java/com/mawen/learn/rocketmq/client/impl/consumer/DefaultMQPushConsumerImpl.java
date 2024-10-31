@@ -1232,8 +1232,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 			throw new MQClientException("pullThresholdForQueue Out of range [1, 65535]" + FAQUrl.suggestTodo(FAQUrl.CLIENT_PARAMETER_CHECK_URL), null);
 		}
 
-		if (this.defaultMQPushConsumer.getPullThresholdForTopic() != -1) {
-			if (this.defaultMQPushConsumer.getPullThresholdForTopic() < 1 || this.defaultMQPushConsumer.getPullThresholdForTopic() > 6553500) {
+		if (this.defaultMQPushConsumer.getPullThresholdSizeForTopic() != -1) {
+			if (this.defaultMQPushConsumer.getPullThresholdSizeForTopic() < 1 || this.defaultMQPushConsumer.getPullThresholdSizeForTopic() > 6553500) {
 				throw new MQClientException("pullThresholdForTopic Out of range [1, 6553500]" + FAQUrl.suggestTodo(FAQUrl.CLIENT_PARAMETER_CHECK_URL), null);
 			}
 		}

@@ -74,7 +74,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
 	private int pullThresholdSizeForQueue = 100;
 
-	private int pullThresholdForTopic = -1;
+	private int pullThresholdSizeForTopic = -1;
 
 	private long pullInterval = 0;
 

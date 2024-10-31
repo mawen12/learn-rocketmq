@@ -13,6 +13,7 @@ import com.mawen.learn.rocketmq.client.QueryResult;
 import com.mawen.learn.rocketmq.client.Validators;
 import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.exception.RequestTimeoutException;
 import com.mawen.learn.rocketmq.client.impl.MQClientManager;
 import com.mawen.learn.rocketmq.client.impl.producer.DefaultMQProducerImpl;
 import com.mawen.learn.rocketmq.client.trace.AsyncTraceDispatcher;
@@ -325,7 +326,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 	}
 
 	@Override
-	public Message request(Message msg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
+	public Message request(Message msg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RequestTimeoutException {
 		msg.setTopic(withNamespace(msg.getTopic()));
 		return this.defaultMQProducerImpl.request(msg, timeout);
 	}
@@ -337,7 +338,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 	}
 
 	@Override
-	public Message request(Message msg, MessageQueue mq, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
+	public Message request(Message msg, MessageQueue mq, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RequestTimeoutException {
 		msg.setTopic(withNamespace(msg.getTopic()));
 		return this.defaultMQProducerImpl.request(msg, mq, timeout);
 	}
@@ -349,13 +350,13 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 	}
 
 	@Override
-	public Message request(Message msg, MessageQueueSelector selector, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
+	public Message request(Message msg, MessageQueueSelector selector, Object arg, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RequestTimeoutException {
 		msg.setTopic(withNamespace(msg.getTopic()));
-		return defaultMQProducerImpl.request(msg, selector, timeout);
+		return defaultMQProducerImpl.request(msg, selector, arg, timeout);
 	}
 
 	@Override
-	public void request(Message msg, MessageQueueSelector selector, RequestCallback requestCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException {
+	public void request(Message msg, MessageQueueSelector selector, RequestCallback requestCallback, long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RequestTimeoutException {
 		msg.setTopic(withNamespace(msg.getTopic()));
 		this.defaultMQProducerImpl.request(msg, selector, requestCallback, timeout);
 	}
@@ -422,6 +423,23 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer{
 				defaultMQProducerImpl.send(msg, mq, sendCallback);
 			}
 			return null;
+		}
+	}
+
+	public SendResult sendByAccumulator(Message msg, MessageQueue mq, SendCallback sendCallback) throws MQBrokerException, InterruptedException, MQClientException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
+		if (!canBatch(msg)) {
+			return sendDirect(msg, mq, sendCallback);
+		}
+		else {
+			Validators.checkMessage(msg, this);
+			MessageClientIDSetter.setUniqID(msg);
+			if (sendCallback == null) {
+				return produceAccumulator.send(msg, mq, this);
+			}
+			else {
+				produceAccumulator.send(msg, mq, this);
+				return null;
+			}
 		}
 	}
 

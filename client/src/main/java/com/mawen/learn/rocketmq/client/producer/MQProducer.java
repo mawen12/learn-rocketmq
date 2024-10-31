@@ -1,15 +1,16 @@
 package com.mawen.learn.rocketmq.client.producer;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 import com.mawen.learn.rocketmq.client.MQAdmin;
 import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.exception.RequestTimeoutException;
 import com.mawen.learn.rocketmq.common.message.Message;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
@@ -79,17 +80,16 @@ public interface MQProducer extends MQAdmin {
 	void send(final Collection<Message> msgs, final MessageQueue mq, final SendCallback sendCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
 	// endregion
 
-	Message request(final Message msg, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	Message request(final Message msg, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException, RequestTimeoutException;
 
-	void request(final Message msg, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	void request(final Message msg, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException;
 
-	Message request(final Message msg, final MessageQueue mq, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	Message request(final Message msg, final MessageQueue mq, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException, RequestTimeoutException;
 
-	void request(final Message msg, final MessageQueue mq, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	void request(final Message msg, final MessageQueue mq, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException;
 
-	Message request(final Message msg, final MessageQueueSelector selector, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
+	Message request(final Message msg, final MessageQueueSelector selector, final Object arg, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException, RequestTimeoutException;
 
-	void request(final Message msg, final MessageQueueSelector selector, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException;
-
+	void request(final Message msg, final MessageQueueSelector selector, final RequestCallback requestCallback, final long timeout) throws RemotingException, MQClientException, MQBrokerException, InterruptedException, RemotingTimeoutException, RequestTimeoutException;
 
 }

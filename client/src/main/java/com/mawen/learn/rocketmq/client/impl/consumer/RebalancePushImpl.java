@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import com.azul.crs.client.Response;
 import com.mawen.learn.rocketmq.client.consumer.AllocateMessageQueueStrategy;
 import com.mawen.learn.rocketmq.client.consumer.MessageQueueListener;
 import com.mawen.learn.rocketmq.client.consumer.store.OffsetStore;
@@ -50,7 +49,7 @@ public class RebalancePushImpl extends RebalanceImpl {
 
 		int currentQueueCount = this.processQueueTable.size();
 		if (currentQueueCount != 0) {
-			int pullThresholdForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForTopic();
+			int pullThresholdForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdSizeForTopic();
 			if (pullThresholdForTopic != -1) {
 				int newVal = Math.max(1, pullThresholdForTopic / currentQueueCount);
 				log.info("The pullThresholdForQueue is changed from {} to {}", this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForQueue(), newVal);

@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import com.mawen.learn.rocketmq.client.AccessChannel;
 import com.mawen.learn.rocketmq.client.common.ThreadLocalIndex;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
+import com.mawen.learn.rocketmq.client.impl.consumer.DefaultMQPushConsumerImpl;
 import com.mawen.learn.rocketmq.client.impl.producer.DefaultMQProducerImpl;
 import com.mawen.learn.rocketmq.client.impl.producer.TopicPublishInfo;
 import com.mawen.learn.rocketmq.client.producer.DefaultMQProducer;

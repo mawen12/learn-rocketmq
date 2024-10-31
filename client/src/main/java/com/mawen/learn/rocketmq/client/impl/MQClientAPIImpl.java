@@ -629,7 +629,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 		catch (Exception e) {
 			long cost = System.currentTimeMillis() - beginStartTime;
 			producer.updateFaultItem(brokerName, cost, true, false);
-			onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, timeoutMillis, e, context, true, producer);
+			onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance, retryTimesWhenSendFailed, times, e, context, true, producer);
 		}
 	}
 

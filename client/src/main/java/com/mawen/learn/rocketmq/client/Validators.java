@@ -3,7 +3,6 @@ package com.mawen.learn.rocketmq.client;
 import java.io.File;
 import java.util.Properties;
 
-import com.azul.crs.client.Response;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
 import com.mawen.learn.rocketmq.client.producer.DefaultMQProducer;
 import com.mawen.learn.rocketmq.common.TopicConfig;
