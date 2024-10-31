@@ -21,6 +21,10 @@ import com.mawen.learn.rocketmq.common.message.MessageClientIDSetter;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageQueue;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingTooMuchRequestException;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
@@ -105,7 +109,7 @@ public class ProduceAccumulator {
 		return asyncSendBatchs.computeIfAbsent(aggregateKey, k -> new MessageAccumulation(aggregateKey, defaultMQProducer));
 	}
 
-	SendResult send(Message msg, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
+	SendResult send(Message msg, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
 		AggregateKey partitionKey = new AggregateKey(msg);
 		while (true) {
 			MessageAccumulation batch = getOrCreateSyncSendBatch(partitionKey, defaultMQProducer);
@@ -119,7 +123,7 @@ public class ProduceAccumulator {
 		}
 	}
 
-	SendResult send(Message msg, MessageQueue mq, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
+	SendResult send(Message msg, MessageQueue mq, DefaultMQProducer defaultMQProducer) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
 		AggregateKey partitionKey = new AggregateKey(msg, mq);
 		while (true) {
 			MessageAccumulation batch = getOrCreateSyncSendBatch(partitionKey, defaultMQProducer);
@@ -318,7 +322,7 @@ public class ProduceAccumulator {
 			return this.messagesSize.get() > holdMs || System.currentTimeMillis() >= this.createTime + holdMs;
 		}
 
-		public int add(Message msg) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
+		public int add(Message msg) throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
 			int ret = -1;
 			synchronized (this.closed) {
 				if (this.closed.get()) {
@@ -410,7 +414,7 @@ public class ProduceAccumulator {
 			}
 		}
 
-		private void send() throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException {
+		private void send() throws InterruptedException, MQClientException, MQBrokerException, RemotingTooMuchRequestException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, RemotingCommandException {
 			synchronized (this.closed) {
 				if (this.closed.getAndSet(true)) {
 					return;
