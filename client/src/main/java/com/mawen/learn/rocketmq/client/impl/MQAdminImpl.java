@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 
 import com.mawen.learn.rocketmq.client.QueryResult;
 import com.mawen.learn.rocketmq.client.Validators;
+import com.mawen.learn.rocketmq.client.exception.MQBrokerException;
 import com.mawen.learn.rocketmq.client.exception.MQClientException;
 import com.mawen.learn.rocketmq.client.impl.factory.MQClientInstance;
 import com.mawen.learn.rocketmq.client.impl.producer.TopicPublishInfo;
@@ -32,6 +33,9 @@ import com.mawen.learn.rocketmq.common.message.MessageQueue;
 import com.mawen.learn.rocketmq.common.utils.NetworkUtil;
 import com.mawen.learn.rocketmq.remoting.InvokeCallback;
 import com.mawen.learn.rocketmq.remoting.exception.RemotingCommandException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingConnectException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingSendRequestException;
+import com.mawen.learn.rocketmq.remoting.exception.RemotingTimeoutException;
 import com.mawen.learn.rocketmq.remoting.netty.ResponseFuture;
 import com.mawen.learn.rocketmq.remoting.protocol.NamespaceUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
@@ -61,7 +65,7 @@ public class MQAdminImpl {
 	@Getter
 	private long timeoutMillis = 6000;
 
-	public void createTopic(String key, String newTopic, int queueNum) {
+	public void createTopic(String key, String newTopic, int queueNum) throws MQClientException {
 		createTopic(key, newTopic, queueNum, 0, null);
 	}
 
@@ -70,7 +74,7 @@ public class MQAdminImpl {
 			Validators.checkTopic(newTopic);
 			Validators.isSystemTopic(newTopic);
 
-			TopicRouteData topicRouteData = this.mqClientFactory.getMQClientAPIImpl().getTopicRouteinfoFromNameServer(key, timeoutMillis);
+			TopicRouteData topicRouteData = this.mqClientFactory.getMqClientAPIImpl().getTopicRouteInfoFromNameServer(key, timeoutMillis);
 			List<BrokerData> brokerDataList = topicRouteData.getBrokerDatas();
 			if (brokerDataList != null && !brokerDataList.isEmpty()) {
 				Collections.sort(brokerDataList);
@@ -92,7 +96,7 @@ public class MQAdminImpl {
 						boolean createOK = false;
 						for (int i = 0; i < 5; i++) {
 							try {
-								this.mqClientFactory.getMQClientAPIImpl().createTopic(masterAddr, key, topicConfig, timeoutMillis);
+								this.mqClientFactory.getMqClientAPIImpl().createTopic(masterAddr, key, topicConfig, timeoutMillis);
 								createOK = true;
 								createOKAtLeastOnce = true;
 								break;
@@ -128,7 +132,7 @@ public class MQAdminImpl {
 
 	public List<MessageQueue> fetchPublishMessageQueues(String topic) throws MQClientException {
 		try {
-			TopicRouteData topicRouteData = this.mqClientFactory.getMQClientAPIImpl().getTopicRouteInfoFromNameServer(topic, timeoutMillis);
+			TopicRouteData topicRouteData = this.mqClientFactory.getMqClientAPIImpl().getTopicRouteInfoFromNameServer(topic, timeoutMillis);
 			if (topicRouteData != null) {
 				TopicPublishInfo topicPublishInfo = MQClientInstance.topicRouteData2TopicPublishInfo(topic, topicRouteData);
 				if (topicPublishInfo != null && topicPublishInfo.ok()) {
@@ -156,7 +160,7 @@ public class MQAdminImpl {
 
 	public Set<MessageQueue> fetchSubscribeMessageQueues(String topic) throws MQClientException {
 		try {
-			TopicRouteData topicRouteData = this.mqClientFactory.getMQClientAPIImpl().getTopicRouteInfoFromNameServer(topic, timeoutMillis);
+			TopicRouteData topicRouteData = this.mqClientFactory.getMqClientAPIImpl().getTopicRouteInfoFromNameServer(topic, timeoutMillis);
 			if (topicRouteData != null) {
 				Set<MessageQueue> mqSet = MQClientInstance.topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
 				if (!mqSet.isEmpty()) {
@@ -174,7 +178,7 @@ public class MQAdminImpl {
 		throw new MQClientException("Unknown why, Can not find Message Queue for this topic, " + topic, null);
 	}
 
-	public long searchOffset(MessageQueue mq, long timestamp) {
+	public long searchOffset(MessageQueue mq, long timestamp) throws MQClientException {
 		return searchOffset(mq, timestamp, BoundaryType.LOWER);
 	}
 
@@ -183,7 +187,7 @@ public class MQAdminImpl {
 
 		if (brokerAddr != null) {
 			try {
-				return this.mqClientFactory.getMQClientAPIImpl().searchOffset(brokerAddr, mq, timestamp, boundaryType, timeoutMillis);
+				return this.mqClientFactory.getMqClientAPIImpl().searchOffset(brokerAddr, mq, timestamp, boundaryType, timeoutMillis);
 			}
 			catch (Exception e) {
 				throw new MQClientException("Invoker Broker[" + brokerAddr + "] exception", e);
@@ -197,7 +201,7 @@ public class MQAdminImpl {
 
 		if (brokerAddr != null) {
 			try {
-				return this.mqClientFactory.getMQClientAPIImpl().getMaxOffset(brokerAddr, mq, timeoutMillis);
+				return this.mqClientFactory.getMqClientAPIImpl().getMaxOffset(brokerAddr, mq, timeoutMillis);
 			}
 			catch (Exception e) {
 				throw new MQClientException("Invoke broker [" + brokerAddr + "] exception", e);
@@ -211,7 +215,7 @@ public class MQAdminImpl {
 
 		if (brokerAddr != null) {
 			try {
-				return this.mqClientFactory.getMQClientAPIImpl().getMinOffset(brokerAddr, mq, timeoutMillis);
+				return this.mqClientFactory.getMqClientAPIImpl().getMinOffset(brokerAddr, mq, timeoutMillis);
 			}
 			catch (Exception e) {
 				throw new MQClientException("Invoke broker [" + brokerAddr + "] exception", e);
@@ -225,7 +229,7 @@ public class MQAdminImpl {
 
 		if (brokerAddr != null) {
 			try {
-				return this.mqClientFactory.getMQClientAPIImpl().getEarliestMsgStoreTime(brokerAddr, mq, timeoutMillis);
+				return this.mqClientFactory.getMqClientAPIImpl().getEarliestMsgStoretime(brokerAddr, mq, timeoutMillis);
 			}
 			catch (Exception e) {
 				throw new MQClientException("Invoke broker [" + brokerAddr + "] exception", e);
@@ -239,13 +243,13 @@ public class MQAdminImpl {
 		String brokerAddr = this.mqClientFactory.findBrokerAddressInPublish(this.mqClientFactory.getBrokerNameFromMessageQueue(mq));
 		if (brokerAddr == null) {
 			this.mqClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
-			brokerAddr = this.mqClientFactory.findBrokerAddresInPublish(this.mqClientFactory.getBrokerNameFromMessageQueue(mq));
+			brokerAddr = this.mqClientFactory.findBrokerAddressInPublish(this.mqClientFactory.getBrokerNameFromMessageQueue(mq));
 		}
 
 		return brokerAddr;
 	}
 
-	public MessageExt viewMessage(String topic, String msgId) throws MQClientException {
+	public MessageExt viewMessage(String topic, String msgId) throws MQClientException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, MQBrokerException, InterruptedException {
 		MessageId messageId;
 		try {
 			messageId = MessageDecoder.decodeMessageId(msgId);
@@ -254,7 +258,7 @@ public class MQAdminImpl {
 			throw new MQClientException(ResponseCode.NO_MESSAGE, "query message by id finished, but not message");
 		}
 
-		return this.mqClientFactory.getMQClientAPIImpl().viewMessage(NetworkUtil.socketAddress2String(messageId.getAddress()), topic, messageId.getOffset(), timeoutMillis);
+		return this.mqClientFactory.getMqClientAPIImpl().viewMessage(NetworkUtil.socketAddress2String(messageId.getAddress()), topic, messageId.getOffset(), timeoutMillis);
 	}
 
 	public QueryResult queryMessage(String topic, String key, int maxNum, long begin, long end) throws InterruptedException, MQClientException {
@@ -293,7 +297,7 @@ public class MQAdminImpl {
 	protected QueryResult queryMessage(String clusterName, String topic, String key, int maxNum, long begin, long end, boolean isUniqKey) throws MQClientException, InterruptedException {
 		TopicRouteData topicRouteData = this.mqClientFactory.getAnExistTopicRouteData(topic);
 		if (topicRouteData == null) {
-			this.mqClientFactory.upateTopicRouteInfoFromNameServer(topic);
+			this.mqClientFactory.updateTopicRouteInfoFromNameServer(topic);
 			topicRouteData = this.mqClientFactory.getAnExistTopicRouteData(topic);
 		}
 
@@ -322,7 +326,7 @@ public class MQAdminImpl {
 						requestHeader.setBeginTimestamp(begin);
 						requestHeader.setEndTimestamp(end);
 
-						this.mqClientFactory.getMQClientAPIImpl().queryMessage(addr, requestHeader, timeoutMillis * 3, new InvokeCallback() {
+						this.mqClientFactory.getMqClientAPIImpl().queryMessage(addr, requestHeader, timeoutMillis * 3, new InvokeCallback() {
 							@Override
 							public void operationComplete(ResponseFuture responseFuture) {
 							}

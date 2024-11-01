@@ -64,7 +64,7 @@ public class RebalancePushImpl extends RebalanceImpl {
 			}
 		}
 
-		this.getMqClientFactory().sendHeartbeartToAllBrokerWithLockV2(true);
+		this.getMqClientFactory().sendHeartbeatToAllBrokerWithLockV2(true);
 
 		MessageQueueListener messageQueueListener = this.defaultMQPushConsumerImpl.getMessageQueueListener();
 		if (messageQueueListener != null) {
@@ -110,7 +110,7 @@ public class RebalancePushImpl extends RebalanceImpl {
 	@Override
 	public long computePullFromWhereWithException(MessageQueue mq) throws MQClientException {
 		long result = -1;
-		final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumerFromWhere();
+		final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumeFromWhere();
 		final OffsetStore offsetStore = this.defaultMQPushConsumerImpl.getOffsetStore();
 		switch (consumeFromWhere) {
 			case CONSUME_FROM_LAST_OFFSET_AND_FROM_MIN_WHEN_BOOT_FIRST:
@@ -227,7 +227,7 @@ public class RebalancePushImpl extends RebalanceImpl {
 				this.defaultMQPushConsumerImpl.executePopPullRequestImmediately(pullRequest);
 			}
 			else {
-				this.defaultMQPushConsumerImpl.executePopPullRequestLaster(pullRequest, delay);
+				this.defaultMQPushConsumerImpl.executePopPullRequestLater(pullRequest, delay);
 			}
 		}
 	}
