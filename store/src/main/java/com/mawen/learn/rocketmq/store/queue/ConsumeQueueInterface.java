@@ -5,6 +5,7 @@ import com.mawen.learn.rocketmq.common.Pair;
 import com.mawen.learn.rocketmq.common.attribute.CQType;
 import com.mawen.learn.rocketmq.common.filter.MessageFilter;
 import com.mawen.learn.rocketmq.common.message.MessageExtBrokerInner;
+import com.mawen.learn.rocketmq.store.DispatchRequest;
 import org.rocksdb.RocksDBException;
 
 /**

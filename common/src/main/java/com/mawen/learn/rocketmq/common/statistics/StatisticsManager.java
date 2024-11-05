@@ -9,12 +9,16 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import com.mawen.learn.rocketmq.common.utils.ThreadUtils;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/10/9
  */
+@Setter
+@Getter
 public class StatisticsManager {
 
 	private static final int MAX_IDLE_TIME = 10 * 60 * 1000;
@@ -106,13 +110,5 @@ public class StatisticsManager {
 
 	private void scheduleStatisticsItem(StatisticsItem item) {
 		kindMetaMap.get(item.getStatKind()).getScheduledPrinter().schedule(item);
-	}
-
-	public StatisticsItemStateGetter getStatisticsItemStateGetter() {
-		return statisticsItemStateGetter;
-	}
-
-	public void setStatisticsItemStateGetter(StatisticsItemStateGetter statisticsItemStateGetter) {
-		this.statisticsItemStateGetter = statisticsItemStateGetter;
 	}
 }
