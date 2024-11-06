@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import com.mawen.learn.rocketmq.common.BoundaryType;
+import com.mawen.learn.rocketmq.common.SystemClock;
 import com.mawen.learn.rocketmq.common.filter.MessageFilter;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
 import com.mawen.learn.rocketmq.common.message.MessageExtBatch;
@@ -168,4 +169,12 @@ public interface MessageStore {
 	MessageStoreConfig getMessageStoreConfig();
 
 	StoreStatService getStoreStatsService();
+
+	StoreCheckPoint getStoreCheckPoint();
+
+	SystemClock getSystemClock();
+
+	CommitLog getCommitLog();
+
+
 }
