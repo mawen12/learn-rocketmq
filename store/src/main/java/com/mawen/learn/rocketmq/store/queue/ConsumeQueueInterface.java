@@ -62,5 +62,5 @@ public interface ConsumeQueueInterface extends FileQueueLifeCycle {
 
 	void increaseQueueOffset(QueueOffsetOperator queueOffsetOperator, MessageExtBrokerInner msg, short messageNum);
 
-	void estimateMessageCount(long from, long to, MessageFilter filter);
+	long estimateMessageCount(long from, long to, MessageFilter filter);
 }

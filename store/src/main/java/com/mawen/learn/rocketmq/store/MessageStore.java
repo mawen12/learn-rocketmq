@@ -1,10 +1,12 @@
 package com.mawen.learn.rocketmq.store;
 
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 import com.mawen.learn.rocketmq.common.BoundaryType;
 import com.mawen.learn.rocketmq.common.SystemClock;
@@ -14,10 +16,17 @@ import com.mawen.learn.rocketmq.common.message.MessageExtBatch;
 import com.mawen.learn.rocketmq.common.message.MessageExtBrokerInner;
 import com.mawen.learn.rocketmq.remoting.protocol.body.HARuntimeInfo;
 import com.mawen.learn.rocketmq.store.config.MessageStoreConfig;
+import com.mawen.learn.rocketmq.store.hook.PutMessageHook;
+import com.mawen.learn.rocketmq.store.hook.SendMessageBackHook;
 import com.mawen.learn.rocketmq.store.logfile.MappedFile;
 import com.mawen.learn.rocketmq.store.queue.ConsumeQueueInterface;
+import com.mawen.learn.rocketmq.store.queue.ConsumeQueueStoreInterface;
 import com.mawen.learn.rocketmq.store.stats.BrokerStatsManager;
 import com.mawen.learn.rocketmq.store.timer.TimerMessageStore;
+import com.mawen.learn.rocketmq.store.util.PerfCounter;
+import io.opentelemetry.api.common.AttributesBuilder;
+import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.sdk.metrics.ViewBuilder;
 import org.rocksdb.RocksDBException;
 
 /**
@@ -176,5 +185,89 @@ public interface MessageStore {
 
 	CommitLog getCommitLog();
 
+	RunningFlags getRunningFlags();
 
+	TransientStorePool getTransientStorePool();
+
+	HAService getHaService();
+
+	AllocateMappedFileService getAllocateMappedFileService();
+
+	void truncateDirtyLogicFiles(long phyOffset) throws RocksDBException;
+
+	void unlockMappedFile(MappedFile unlockMappedFile);
+
+	PerfCounter.Ticks getPerfCounter();
+
+	ConsumeQueueStoreInterface getQueueStore();
+
+	boolean isSyncDiskFlush();
+
+	boolean isSyncMaster();
+
+	void assignOffset(MessageExtBrokerInner msg) throws RocksDBException;
+
+	void increaseOffset(MessageExtBrokerInner msg, short messageNum);
+
+	MessageStore getMasterStoreInProcess();
+
+	void setMasterStoreInProcess(MessageStore masterStoreInProcess);
+
+	boolean getData(long offset, int size, ByteBuffer buffer);
+
+	void setAliveReplicaNumInGroup(int aliveReplicaNums);
+
+	int getAliveReplicaNumInGroup();
+
+	void wakeupHAClient();
+
+	long getMasterFlushedOffset();
+
+	long getBrokerInitMaxOffset();
+
+	void setMasterFlushedOffset(long masterFlushedOffset);
+
+	void setBrokerInitMaxOffset(long brokerInitMaxOffset);
+
+	byte[] calcDeltaChecksum(long from, long to);
+
+	boolean truncateFiles(long offsetToTruncate) throws RocksDBException;
+
+	boolean isOffsetAligned(long offset);
+
+	List<PutMessageHook> getPutMessageHookList();
+
+	void setSendMessageBackHook(SendMessageBackHook sendMessageBackHook);
+
+	SendMessageBackHook getSendMessageHook();
+
+	long getLastFileFromOffset();
+
+	boolean getLastMappedFile(long startOffset);
+
+	void setPhysicalOffset(long phyOffset);
+
+	boolean isMappedFilesEmpty();
+
+	long getStateMachineVersion();
+
+	DispatchRequest checkMessageAndReturnSize(final ByteBuffer buffer, final boolean checkCRC, final boolean checkDupInfo, final boolean readBody);
+
+	int remainTransientStoreBufferNumbs();
+
+	long remainHowManyDataToCommit();
+
+	long remainHowManyDataToFlush();
+
+	boolean isShutdown();
+
+	long estimateMessageCount(String topic, int queueId, long from, long to, MessageFilter filter);
+
+	List<Pair<InstrucmentSelector, ViewBuilder>> getMetricsView();
+
+	void initMetrics(Meter meter, Supplier<AttributesBuilder> attributesBuilderSupplier);
+
+	void recoverTopicQueueTable();
+
+	void notifyMessageArriveIfNecessary(DispatchRequest request);
 }
