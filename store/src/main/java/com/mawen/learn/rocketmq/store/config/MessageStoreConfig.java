@@ -5,7 +5,6 @@ import java.io.File;
 import com.mawen.learn.rocketmq.common.annotation.ImportantField;
 import com.mawen.learn.rocketmq.store.ConsumeQueue;
 import com.mawen.learn.rocketmq.store.StoreType;
-import com.sun.jna.WString;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -126,7 +125,7 @@ public class MessageStoreConfig {
 	private int flushConsumeQueueLeastPages = 2;
 	private int flushCommitLogThoroughInterval = 10 * 1000;
 	private int commitCommitLogThoroughInterval = 200;
-	private int flushConsumeQueueThoroughInterval = 60 * 1000;
+	private int flushConsumeQueueThroughInterval = 60 * 1000;
 	@ImportantField
 	private int maxTransferBytesOnMessageInMemory = 256 * 1024;
 	@ImportantField

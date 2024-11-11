@@ -1,18 +1,19 @@
 package com.mawen.learn.rocketmq.store.ha;
 
 import java.io.IOException;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.google.common.graph.Network;
 import com.mawen.learn.rocketmq.common.ServiceThread;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.utils.NetworkUtil;
+import com.mawen.learn.rocketmq.remoting.common.RemotingHelper;
 import com.mawen.learn.rocketmq.store.DefaultMessageStore;
-import io.netty.buffer.ByteBufAllocator;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
@@ -39,7 +40,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
 
 	private final AtomicReference<String> masterAddress = new AtomicReference<>();
 	private final AtomicReference<String> masterHaAddress = new AtomicReference<>();
-	private final ByteBuffer reportBuffer = ByteBuffer.allocate(REPORT_HEADER_SIZE);
+	private final ByteBuffer reportOffset = ByteBuffer.allocate(REPORT_HEADER_SIZE);
 
 	private SocketChannel socketChannel;
 	private Selector selector;
@@ -147,7 +148,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
 
 	@Override
 	public long getTransferredByteInSecond() {
-		return flowMonitor.getTransferredByteInSecond;
+		return flowMonitor.getTransferredByteInSecond();
 	}
 
 	@Override
@@ -171,7 +172,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
 						continue;
 					case TRANSFER:
 						if (!transferFromMaster()) {
-							closeMasterAndAwait();
+							closeMasterAndWait();
 							continue;
 						}
 						break;
@@ -199,7 +200,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
 		log.info("{} service end", serviceName);
 	}
 
-	private boolean transferFromMaster() {
+	private boolean transferFromMaster() throws IOException {
 		boolean result;
 		if (isTimeToReportOffset()) {
 			log.info("slave report current offset {}", currentReportedOffset);
@@ -219,7 +220,173 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
 		return reportSlaveMaxOffsetPlus();
 	}
 
-	public void closeMasterAndAwait() {
+	private boolean isTimeToReportOffset() {
+		long interval = defaultMessageStore.now() - lastReadTimestamp;
+		return interval > defaultMessageStore.getMessageStoreConfig().getHaSendHeartbeartInterval();
+	}
+
+	private boolean reportSlaveMaxOffset(final long maxOffset) {
+		reportOffset.position(0);
+		reportOffset.limit(REPORT_HEADER_SIZE);
+		reportOffset.putLong(maxOffset);
+		reportOffset.position(0);
+		reportOffset.limit(REPORT_HEADER_SIZE);
+
+		for (int i = 0; i < 3 && reportOffset.hasRemaining(); i++) {
+			try {
+				socketChannel.write(reportOffset);
+			}
+			catch (IOException e) {
+				log.error("{} reportSlaveMaxOffset socketChannel.write exception", e);
+				return false;
+			}
+		}
+
+		lastReadTimestamp = defaultMessageStore.getSystemClock().now();
+		return !reportOffset.hasRemaining();
+	}
+
+	private boolean processReadEvent() {
+		int readSizeZeroTimes = 0;
+		while (buffedRead.hasRemaining()) {
+			try {
+				int readSize = socketChannel.read(buffedRead);
+				if (readSize > 0) {
+					flowMonitor.addByteCountTransferred(readSize);
+					readSizeZeroTimes = 0;
+					boolean result = dispatchReadRequest();
+					if (!result) {
+						log.error("HAClient, dispatchReadRequest error");
+						return false;
+					}
+					lastReadTimestamp = System.currentTimeMillis();
+				}
+				else if (readSize == 0) {
+					if (++readSizeZeroTimes >= 3) {
+						break;
+					}
+				}
+				else {
+					log.info("HAClient, processReadEvent read socket < 0");
+					return false;
+				}
+			}
+			catch (IOException e) {
+				log.error("HAClient, processReadEvent read socket channel exception", e);
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+
+	private boolean dispatchReadRequest() {
+		int readSocketPos = buffedRead.position();
+
+		while (true) {
+			int diff = buffedRead.position() - dispatchPosition;
+			if (diff >= DefaultHAConnection.TRANSFER_HEADER_SIZE) {
+				long masterPhyOffset = buffedRead.getLong(dispatchPosition);
+				int bodySize = buffedRead.getInt(dispatchPosition + 8);
+
+				long slavePhyOffset = defaultMessageStore.getMaxPhyOffset();
+				if (slavePhyOffset != 0) {
+					if (slavePhyOffset != masterPhyOffset) {
+						log.error("master pushed offset not equal the max phy offset in slave, SLAVE: {} MASTER: {}",
+								slavePhyOffset, masterPhyOffset);
+						return false;
+					}
+				}
+
+				if (diff >= (DefaultHAConnection.TRANSFER_HEADER_SIZE + bodySize)) {
+					byte[] bodyData = buffedRead.array();
+					int dataStart = dispatchPosition + DefaultHAConnection.TRANSFER_HEADER_SIZE;
+
+					defaultMessageStore.appendToCommitLog(masterPhyOffset, bodyData, dataStart, bodySize);
+
+					buffedRead.position(readSocketPos);
+					dispatchPosition += DefaultHAConnection.TRANSFER_HEADER_SIZE + bodySize;
+
+					if (!reportSlaveMaxOffsetPlus()) {
+						return false;
+					}
+
+					continue;
+				}
+			}
+
+			if (!buffedRead.hasRemaining()) {
+				reallocateByteBuffer();
+			}
+
+			break;
+		}
+
+		return true;
+	}
+
+	private void reallocateByteBuffer() {
+		int remain = READ_MAX_BUFFER_SIZE + dispatchPosition;
+		if (remain > 0) {
+			buffedRead.position(dispatchPosition);
+
+			buffedBackup.position(0);
+			buffedBackup.limit(READ_MAX_BUFFER_SIZE);
+			buffedBackup.put(buffedRead);
+		}
+
+		swapByteBuffer();
+
+		buffedRead.position(remain);
+		buffedRead.limit(READ_MAX_BUFFER_SIZE);
+		dispatchPosition = 0;
+	}
+
+	private void swapByteBuffer() {
+		ByteBuffer tmp = buffedRead;
+		buffedRead = buffedBackup;
+		buffedBackup = tmp;
+	}
+
+	private boolean reportSlaveMaxOffsetPlus() {
+		boolean result = true;
+		long currentPhyOffset = defaultMessageStore.getMaxPhyOffset();
+
+		if (currentPhyOffset > currentReportedOffset) {
+			currentReportedOffset = currentPhyOffset;
+			result = reportSlaveMaxOffset(currentReportedOffset);
+			if (!result) {
+				closeMaster();
+				log.error("HAClient, reportSlaveMaxOffset error {}", currentReportedOffset);
+			}
+		}
+
+		return result;
+	}
+
+	public boolean connectMaster() throws ClosedChannelException {
+		if (socketChannel == null) {
+			String addr = masterHaAddress.get();
+			if (addr != null) {
+				SocketAddress socketAddress = NetworkUtil.string2SocketAddress(addr);
+				socketChannel = RemotingHelper.connect(socketAddress);
+				if (socketChannel != null) {
+					socketChannel.register(selector, SelectionKey.OP_READ);
+					log.info("HAClient connect to master {}", addr);
+					changeCurrentState(HAConnectionState.TRANSFER);
+				}
+			}
+
+			currentReportedOffset = defaultMessageStore.getMaxPhyOffset();
+
+			lastReadTimestamp = System.currentTimeMillis();
+		}
+
+		return socketChannel != null;
+	}
+
+	public void closeMasterAndWait() {
 		closeMaster();
 		waitForRunning(5 * 1000);
 	}
