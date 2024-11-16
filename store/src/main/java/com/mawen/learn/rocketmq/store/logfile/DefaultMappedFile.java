@@ -36,6 +36,7 @@ import com.mawen.learn.rocketmq.store.config.FlushDiskType;
 import com.mawen.learn.rocketmq.store.util.LibC;
 import com.sun.jna.NativeLong;
 import com.sun.jna.Pointer;
+import lombok.Setter;
 import org.apache.commons.lang3.SystemUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ import sun.nio.ch.DirectBuffer;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/11/4
  */
+@Setter
 public class DefaultMappedFile extends AbstractMappedFile {
 
 	public static final int OS_PAGE_SIZE = 4 * 1024;

@@ -2,7 +2,6 @@ package com.mawen.learn.rocketmq.store;
 
 import java.nio.ByteBuffer;
 
-import io.netty.buffer.ByteBuf;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NoArgsConstructor;

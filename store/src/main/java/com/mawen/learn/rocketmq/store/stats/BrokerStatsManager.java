@@ -299,7 +299,7 @@ public class BrokerStatsManager {
 	}
 
 	public void incQueuePutNums(final String topic, final Integer queueId) {
-		incQueuePutNums(topic, queueId, 1, 1,);
+		incQueuePutNums(topic, queueId, 1, 1 );
 	}
 
 	public void incQueuePutNums(final String topic, final Integer queueId, int num, int times) {
@@ -482,9 +482,9 @@ public class BrokerStatsManager {
 		statsTable.get(key).addValue(statsKey, incValue, 1);
 	}
 
-	public void incCommercialValue(final String kye, final String owner, final String group, final String topic, final String type, final int incValue) {
+	public void incCommercialValue(final String key, final String owner, final String group, final String topic, final String type, final int incValue) {
 		String statsKey = buildCommercialStatsKey(owner, topic, group, type);
-		statsKey.get(key).addValue(statsKey, incValue, 1);
+		statsTable.get(key).addValue(statsKey, incValue, 1);
 	}
 
 	public void incAccountValue(final String key, final String accountOwnerParent, final String accountOwnerSelf, final String instanceId, final String group, final String topic, final String msgType, final int incValue) {
@@ -544,7 +544,7 @@ public class BrokerStatsManager {
 		return sb.toString();
 	}
 
-	public String buildCommercialStatsKey(String owner, String topic, Stirng group, String type) {
+	public String buildCommercialStatsKey(String owner, String topic, String group, String type) {
 		return Arrays.asList(owner, topic, group, topic).stream().collect(Collectors.joining("@"));
 	}
 
