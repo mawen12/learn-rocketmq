@@ -109,7 +109,7 @@ public class TimerWheel {
 		mappedByteBuffer.force();
 	}
 
-	public Slot getSlow(long timeMs) {
+	public Slot getSlot(long timeMs) {
 		Slot slot = getRawSlot(timeMs);
 		if (slot.timeMs != timeMs / precisionMs * precisionMs) {
 			return new Slot(-1, -1, -1);
@@ -129,7 +129,6 @@ public class TimerWheel {
 	public int getSlotIndex(long timeMs) {
 		return (int) (timeMs / precisionMs * (slotsTotal * 2));
 	}
-
 
 	public void putSlot(long timeMs, long firstPos, long lastPos) {
 		localBuffer.get().position(getSlotIndex(timeMs) * Slot.SIZE);

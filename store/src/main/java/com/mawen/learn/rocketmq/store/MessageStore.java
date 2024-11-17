@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 import com.mawen.learn.rocketmq.common.BoundaryType;
+import com.mawen.learn.rocketmq.common.Pair;
 import com.mawen.learn.rocketmq.common.SystemClock;
 import com.mawen.learn.rocketmq.common.filter.MessageFilter;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
@@ -16,6 +17,7 @@ import com.mawen.learn.rocketmq.common.message.MessageExtBatch;
 import com.mawen.learn.rocketmq.common.message.MessageExtBrokerInner;
 import com.mawen.learn.rocketmq.remoting.protocol.body.HARuntimeInfo;
 import com.mawen.learn.rocketmq.store.config.MessageStoreConfig;
+import com.mawen.learn.rocketmq.store.ha.HAService;
 import com.mawen.learn.rocketmq.store.hook.PutMessageHook;
 import com.mawen.learn.rocketmq.store.hook.SendMessageBackHook;
 import com.mawen.learn.rocketmq.store.logfile.MappedFile;
@@ -26,6 +28,7 @@ import com.mawen.learn.rocketmq.store.timer.TimerMessageStore;
 import com.mawen.learn.rocketmq.store.util.PerfCounter;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.Meter;
+import io.opentelemetry.sdk.metrics.InstrumentSelector;
 import io.opentelemetry.sdk.metrics.ViewBuilder;
 import org.rocksdb.RocksDBException;
 
@@ -62,6 +65,8 @@ public interface MessageStore {
 	GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset, final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter);
 
 	CompletableFuture<GetMessageResult> getMessageAsync(final String group, final String topic, final int queueId, final long offset, final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter);
+
+	long getMaxOffsetInQueue(final String topic, final int queueId);
 
 	long getMaxOffsetInQueue(final String topic, final int queueId, final boolean committed);
 
@@ -263,7 +268,7 @@ public interface MessageStore {
 
 	long estimateMessageCount(String topic, int queueId, long from, long to, MessageFilter filter);
 
-	List<Pair<InstrucmentSelector, ViewBuilder>> getMetricsView();
+	List<Pair<InstrumentSelector, ViewBuilder>> getMetricsView();
 
 	void initMetrics(Meter meter, Supplier<AttributesBuilder> attributesBuilderSupplier);
 

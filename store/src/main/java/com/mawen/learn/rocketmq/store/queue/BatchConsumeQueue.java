@@ -28,7 +28,7 @@ import org.rocksdb.RocksDBException;
 @Getter
 public class BatchConsumeQueue implements ConsumeQueueInterface {
 
-	private static final Logger log = LoggerFactory.getLogger(BatchConsumeQueue.class);
+	protected static final Logger log = LoggerFactory.getLogger(BatchConsumeQueue.class);
 
 	/**
 	 * <pre>
