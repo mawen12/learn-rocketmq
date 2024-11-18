@@ -46,7 +46,7 @@ public class DefaultHAService implements HAService {
 
 	protected HAClient haClient;
 
-	private HAConnectionStateNotificationService haConnectionStateNotificationService;
+	protected HAConnectionStateNotificationService haConnectionStateNotificationService;
 
 	@Override
 	public void init(DefaultMessageStore defaultMessageStore) throws IOException {
@@ -56,7 +56,7 @@ public class DefaultHAService implements HAService {
 		if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
 			this.haClient = new DefaultHAClient(this.defaultMessageStore);
 		}
-		this.haConnectionStateNotificationService = new HaConnectionStateNotificationService(this, defaultMessageStore);
+		this.haConnectionStateNotificationService = new HAConnectionStateNotificationService(this, defaultMessageStore);
 	}
 
 	@Override
