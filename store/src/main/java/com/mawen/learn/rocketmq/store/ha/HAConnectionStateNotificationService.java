@@ -56,6 +56,14 @@ public class HAConnectionStateNotificationService extends ServiceThread  {
 		log.info("{} service end", serviceName);
 	}
 
+	public synchronized void setRequest(HAConnectionStateNotificationRequest request) {
+		if (this.request != null) {
+			this.request.getRequestFuture().cancel(true);
+		}
+		this.request = request;
+		this.lastCheckTimestamp = System.currentTimeMillis();
+	}
+
 	private synchronized void doWaitConnectionState() {
 		if (request == null || request.getRequestFuture().isDone()) {
 			return;

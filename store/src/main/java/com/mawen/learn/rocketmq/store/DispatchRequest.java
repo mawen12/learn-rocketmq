@@ -93,6 +93,4 @@ public class DispatchRequest {
 		this.preparedTransactionOffset = preparedTransactionOffset;
 		this.propertiesMap = propertiesMap;
 	}
-
-
 }

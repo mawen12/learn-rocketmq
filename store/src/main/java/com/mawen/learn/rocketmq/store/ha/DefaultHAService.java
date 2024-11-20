@@ -16,9 +16,11 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.mawen.learn.rocketmq.common.ServiceThread;
 import com.mawen.learn.rocketmq.common.utils.NetworkUtil;
 import com.mawen.learn.rocketmq.remoting.protocol.body.HARuntimeInfo;
+import com.mawen.learn.rocketmq.store.CommitLog;
 import com.mawen.learn.rocketmq.store.DefaultMessageStore;
 import com.mawen.learn.rocketmq.store.config.BrokerRole;
 import com.mawen.learn.rocketmq.store.config.MessageStoreConfig;
+import lombok.Getter;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
@@ -26,6 +28,7 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/11/11
  */
+@Getter
 public class DefaultHAService implements HAService {
 
 	private static final Logger log = LoggerFactory.getLogger(DefaultHAService.class);
@@ -60,7 +63,7 @@ public class DefaultHAService implements HAService {
 	}
 
 	@Override
-	public void start() throws IOException {
+	public void start() throws Exception {
 		acceptSocketService.beginAccept();
 		acceptSocketService.start();
 		groupTransferService.start();
@@ -308,5 +311,25 @@ public class DefaultHAService implements HAService {
 		}
 
 		protected abstract HAConnection createConnection(final SocketChannel sc) throws IOException;
+	}
+
+	class DefaultAcceptSocketService extends AcceptSocketService {
+
+		public DefaultAcceptSocketService(MessageStoreConfig messageStoreConfig) {
+			super(messageStoreConfig);
+		}
+
+		@Override
+		protected HAConnection createConnection(SocketChannel sc) throws IOException {
+			return new DefaultHAConnection(DefaultHAService.this,sc);
+		}
+
+		@Override
+		public String getServiceName() {
+			if (defaultMessageStore.getBrokerConfig().isInBrokerContainer()) {
+				return defaultMessageStore.getBrokerConfig().getIdentifier() + AcceptSocketService.class.getSimpleName();
+			}
+			return DefaultAcceptSocketService.class.getSimpleName();
+		}
 	}
 }

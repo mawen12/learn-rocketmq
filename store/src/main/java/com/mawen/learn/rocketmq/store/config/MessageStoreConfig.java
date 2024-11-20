@@ -5,6 +5,7 @@ import java.io.File;
 import com.mawen.learn.rocketmq.common.annotation.ImportantField;
 import com.mawen.learn.rocketmq.store.ConsumeQueue;
 import com.mawen.learn.rocketmq.store.StoreType;
+import com.mawen.learn.rocketmq.store.queue.BatchConsumeQueue;
 import lombok.Getter;
 import lombok.Setter;
 

@@ -18,6 +18,7 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * @author <a href="1181963012mw@gmail.com">mawen12</a>
  * @since 2024/11/6
  */
+@Getter
 public class CommitLog implements Swappable {
 
 	private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);

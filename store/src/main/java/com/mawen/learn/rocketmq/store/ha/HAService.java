@@ -18,7 +18,7 @@ public interface HAService {
 
 	void init(DefaultMessageStore defaultMessageStore) throws IOException;
 
-	void start() throws IOException;
+	void start() throws Exception;
 
 	void shutdown();
 

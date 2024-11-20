@@ -20,4 +20,6 @@ public class HAConnectionStateNotificationRequest {
 		this.remoteAddr = remoteAddr;
 		this.notifyWhenShutdown = notifyWhenShutdown;
 	}
+
+
 }
