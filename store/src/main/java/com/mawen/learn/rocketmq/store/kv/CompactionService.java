@@ -72,7 +72,7 @@ public class CompactionService {
 		compactionStore.shutdown();
 	}
 
-	public void updateMaterAddress(String addr) {
+	public void updateMasterAddress(String addr) {
 		compactionStore.updateMasterAddress(addr);
 	}
 }

@@ -3,31 +3,40 @@ package com.mawen.learn.rocketmq.store;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.net.Inet6Address;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileLock;
-import java.sql.SQLSyntaxErrorException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
+import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
 import com.mawen.learn.rocketmq.common.AbstractBrokerRunnable;
+import com.mawen.learn.rocketmq.common.BoundaryType;
 import com.mawen.learn.rocketmq.common.BrokerConfig;
 import com.mawen.learn.rocketmq.common.BrokerIdentity;
 import com.mawen.learn.rocketmq.common.MixAll;
@@ -38,41 +47,52 @@ import com.mawen.learn.rocketmq.common.ThreadFactoryImpl;
 import com.mawen.learn.rocketmq.common.TopicConfig;
 import com.mawen.learn.rocketmq.common.UtilAll;
 import com.mawen.learn.rocketmq.common.attribute.CQType;
+import com.mawen.learn.rocketmq.common.attribute.CleanupPolicy;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.filter.MessageFilter;
+import com.mawen.learn.rocketmq.common.message.MessageConst;
 import com.mawen.learn.rocketmq.common.message.MessageDecoder;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
+import com.mawen.learn.rocketmq.common.message.MessageExtBatch;
 import com.mawen.learn.rocketmq.common.message.MessageExtBrokerInner;
+import com.mawen.learn.rocketmq.common.running.RunningStats;
 import com.mawen.learn.rocketmq.common.sysflag.MessageSysFlag;
+import com.mawen.learn.rocketmq.common.topic.TopicValidator;
+import com.mawen.learn.rocketmq.common.utils.CleanupPolicyUtils;
+import com.mawen.learn.rocketmq.common.utils.QueueTypeUtils;
 import com.mawen.learn.rocketmq.common.utils.ThreadUtils;
 import com.mawen.learn.rocketmq.remoting.protocol.body.HARuntimeInfo;
 import com.mawen.learn.rocketmq.store.config.BrokerRole;
 import com.mawen.learn.rocketmq.store.config.FlushDiskType;
 import com.mawen.learn.rocketmq.store.config.MessageStoreConfig;
 import com.mawen.learn.rocketmq.store.config.StorePathConfigHelper;
+import com.mawen.learn.rocketmq.store.dledger.DLedgerCommitLog;
 import com.mawen.learn.rocketmq.store.ha.HAService;
 import com.mawen.learn.rocketmq.store.ha.autoswitch.AutoSwitchHAService;
 import com.mawen.learn.rocketmq.store.hook.PutMessageHook;
 import com.mawen.learn.rocketmq.store.hook.SendMessageBackHook;
 import com.mawen.learn.rocketmq.store.index.IndexService;
+import com.mawen.learn.rocketmq.store.index.QueryOffsetResult;
 import com.mawen.learn.rocketmq.store.kv.CompactionService;
 import com.mawen.learn.rocketmq.store.logfile.MappedFile;
 import com.mawen.learn.rocketmq.store.metrics.DefaultStoreMetricsManager;
 import com.mawen.learn.rocketmq.store.queue.ConsumeQueueInterface;
 import com.mawen.learn.rocketmq.store.queue.ConsumeQueueStoreInterface;
 import com.mawen.learn.rocketmq.store.queue.CqUnit;
+import com.mawen.learn.rocketmq.store.queue.ReferredIterator;
 import com.mawen.learn.rocketmq.store.stats.BrokerStatsManager;
 import com.mawen.learn.rocketmq.store.timer.TimerMessageStore;
 import com.mawen.learn.rocketmq.store.util.PerfCounter;
-import io.netty.buffer.ByteBuf;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.sdk.metrics.InstrumentSelector;
 import io.opentelemetry.sdk.metrics.ViewBuilder;
+import jdk.javadoc.internal.doclets.toolkit.builders.BuilderFactory;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.rocksdb.RocksDBException;
@@ -176,8 +196,926 @@ public class DefaultMessageStore implements MessageStore {
 
 	private final ScheduledExecutorService scheduledCleanQueueExecutorService = ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreCleanQueueScheduledThread"));
 
-	public MappedFile<String, Long> getMessageIds() {
+	private void doRecheckReputOffsetFromCq() {
+		TODO
+	}
 
+	@Override
+	public void shutdown() {
+		if (!shutdown) {
+			shutdown = true;
+
+			scheduledExecutorService.shutdown();
+			scheduledCleanQueueExecutorService.shutdown();
+
+			try {
+				scheduledExecutorService.awaitTermination(3, TimeUnit.SECONDS);
+				scheduledCleanQueueExecutorService.awaitTermination(3, TimeUnit.SECONDS);
+				Thread.sleep(3 * 1000);
+			}
+			catch (InterruptedException e) {
+				log.error("shutdown Exception," ,e);
+			}
+
+			if (haService != null) {
+				haService.shutdown();
+			}
+
+			storeStatService.shutdown();
+			commitLog.shutdown();
+			reputMessageService.shutdown();
+			consumeQueueStore.shutdown();
+			indexService.shutdown();
+			if (compactionService != null) {
+				compactionService.shutdown();
+			}
+
+			flushConsumeQueueService.shutdown();
+			allocateMappedFileService.shutdown();
+			storeCheckPoint.flush();
+			storeCheckPoint.shutdown();
+
+			perfs.shutdown();
+
+			if (runningFlags.isWritable() && dispatchBehindBytes() == 0) {
+				deleteFile(StorePathConfigHelper.getAbortFile(messageStoreConfig.getStorePathRootDir()));
+				shutDownNormal = true;
+			}
+			else {
+				log.warn("the store may be wrong, so shutdown abnormally, and keep abort file.");
+			}
+		}
+
+		transientStorePool.destroy();
+
+		if (lockFile != null && lock != null) {
+			try {
+				lock.release();
+				lockFile.close();
+			}
+			catch (IOException ignored) {}
+		}
+	}
+
+	@Override
+	public void destroy() {
+		consumeQueueStore.destroy();
+		commitLog.destroy();
+		indexService.destroy();
+		deleteFile(StorePathConfigHelper.getAbortFile(messageStoreConfig.getStorePathRootDir()));
+		deleteFile(StorePathConfigHelper.getStoreCheckPoint(messageStoreConfig.getStorePathRootDir()));
+	}
+
+	public long getMajorFileSize() {
+		long commitLogSize = 0;
+		if (commitLog != null) {
+			commitLogSize = commitLog.getTotalSize();
+		}
+
+		long consumeQueueSize = 0;
+		if (consumeQueueStore != null) {
+			consumeQueueSize = consumeQueueStore.getTotalSize();
+		}
+
+		long indexFileSize = 0;
+		if (indexService != null) {
+			indexFileSize = indexService.getTotalSize();
+		}
+
+		return commitLogSize + consumeQueueSize + indexFileSize;
+	}
+
+	@Override
+	public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
+		for (PutMessageHook hook : putMessagehookList) {
+			PutMessageResult result = hook.executeBeforePutMessage(msg);
+			if (result != null) {
+				return CompletableFuture.completedFuture(result);
+			}
+		}
+
+		if (msg.getProperties().containsKey(MessageConst.PROPERTY_INNER_NUM) && !MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
+			log.warn("[BUG] The message had property {} but is not an inner batch", MessageConst.PROPERTY_INNER_NUM);
+			return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
+		}
+
+		if (MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
+			Optional<TopicConfig> topicConfig = getTopicConfig(msg.getTopic());
+			if (!QueueTypeUtils.isBatchCq(topicConfig)) {
+				log.error("[BUG]The message is an inner batch but cq type is not batch cq");
+				return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
+			}
+		}
+
+		long begin = getSystemClock().now();
+		CompletableFuture<PutMessageResult> putResultFuture = commitLog.asyncPutMessage(msg);
+
+		putResultFuture.thenAccept(result -> {
+			long elaspedTime = systemClock.now() - begin;
+			if (elaspedTime > 500) {
+				log.warn("DefaultMessageStore#putMessage: CommitLog#putMessage cost {}ms, topic={}, bodyLength={}",
+						elaspedTime, msg.getTopic(), msg.getBody().length);
+			}
+			storeStatService.setPutMessageEntireTimeMax(elaspedTime);
+
+			if (result == null || !result.isOk()) {
+				storeStatService.getPutMessageFailedTimes().add(1);
+			}
+		});
+
+		return putResultFuture;
+	}
+
+	@Override
+	public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBatch messageExtBatch) {
+		for (PutMessageHook hook : putMessagehookList) {
+			PutMessageResult result = hook.executeBeforePutMessage(messageExtBatch);
+			if (result != null) {
+				return CompletableFuture.completedFuture(result);
+			}
+		}
+
+		long begin = System.currentTimeMillis();
+		CompletableFuture<PutMessageResult> putMessageFuture = commitLog.asyncPutMessages(messageExtBatch);
+
+		putMessageFuture.thenAccept(result -> {
+			long eclipseTime = getSystemClock().now() - begin;
+			if (eclipseTime > 500) {
+				log.warn("not in lock eclipse time(ms)={}, bodyLength={}", eclipseTime, messageExtBatch.getBody().length);
+			}
+			storeStatService.setPutMessageEntireTimeMax(eclipseTime);
+
+			if (result == null || !result.isOk()) {
+				storeStatService.getPutMessageFailedTimes().add(1);
+			}
+		});
+
+		return putMessageFuture;
+	}
+
+	@Override
+	public PutMessageResult putMessage(MessageExtBrokerInner msg) {
+		return waitForPutResult(asyncPutMessage(msg));
+	}
+
+	@Override
+	public PutMessageResult putMessages(MessageExtBatch messageExtBatch) {
+		return waitForPutResult(asyncPutMessage(messageExtBatch));
+	}
+
+	private PutMessageResult waitForPutResult(CompletableFuture<PutMessageResult> putMessageResultFuture) {
+		try {
+			int putMessageTimeout = Math.max(messageStoreConfig.getSyncFlushTimeout(), messageStoreConfig.getSlaveTimeout()) + 5000;
+			return putMessageResultFuture.get(putMessageTimeout, TimeUnit.MILLISECONDS);
+		}
+		catch (ExecutionException | InterruptedException e) {
+			return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, null);
+		}
+		catch (TimeoutException e) {
+			log.error("usually it will never timeout, putMessageTimeout is much bigger thant slaveTimeout and flushTimeout " +
+			          "so the result can be got anyway, but in some situations timeout will happen like full gc process " +
+			          "hangs or other unexpected situations.");
+			return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, null);
+		}
+	}
+
+	@Override
+	public boolean isOSPageCacheBusy() {
+		long begin = getCommitLog().getBeginTimeInLock();
+		long diff = systemClock.now() - begin;
+
+		return diff < 10_000_000 && diff > messageStoreConfig.getOsPageCacheBusyTimeOutMills();
+	}
+
+	@Override
+	public long lockTimeMills() {
+		return commitLog.lockTimeMillis();
+	}
+
+	@Override
+	public void setMasterFlushedOffset(long masterFlushedOffset) {
+		this.masterFlushedOffset = masterFlushedOffset;
+		this.storeCheckPoint.setMasterFlushedOffset(masterFlushedOffset);
+	}
+
+	public void truncateDirtyFiles(long offsetToTruncate) {
+		log.info("truncate dirty files to {}", offsetToTruncate);
+
+		if (offsetToTruncate >= getMaxPhyOffset()) {
+			log.info("no need to truncate files, truncate offset is {}, max physical offset is {}", offsetToTruncate, getMaxPhyOffset());
+			return;
+		}
+
+		reputMessageService.shutdown();
+
+		long oldReputFromOffset = reputMessageService.getReputFromOffset();
+
+		truncateDirtyLogicFiles(offsetToTruncate);
+
+		commitLog.truncateDirtyFiles(offsetToTruncate);
+
+		recoverTopicQueueTable();
+
+		if (!messageStoreConfig.isEnableBuildConsumeQueueConcurrently()) {
+			this.reputMessageService = new ReputMessageService();
+		}
+		else {
+			this.reputMessageService = new ConcurrentReputMessageService();
+		}
+
+		loing resetReputOffset = Math.min(oldReputFromOffset, offsetToTruncate);
+
+		log.info("oldReputFromOffset is {}, reset reput from offset to {}", oldReputFromOffset, resetReputOffset);
+
+		reputMessageService.setReputFromOffset(resetReputOffset);
+		reputMessageService.start();
+	}
+
+	@Override
+	public boolean truncateFiles(long offsetToTruncate) throws RocksDBException {
+		if (offsetToTruncate >= getMaxPhyOffset()) {
+			log.info("no need to truncate files, truncate offset is {}, max physical offset is {}", offsetToTruncate, getMaxPhyOffset());
+			return true;
+		}
+		if (!isOffsetAligned(offsetToTruncate)) {
+			log.error("offset {} is not align, truncate failed, need manual fix", offsetToTruncate);
+			return false;
+		}
+		truncateDirtyFiles(offsetToTruncate);
+		return true;
+	}
+
+	@Override
+	public boolean isOffsetAligned(long offset) {
+		SelectMappedBufferResult result = getCommitLogData(offset);
+		if (result == null) {
+			return true;
+		}
+
+		DispatchRequest request = commitLog.checkMessageAndReturnSize(result.getByteBuffer(), true, false);
+		return request.isSuccess();
+	}
+
+	@Override
+	public GetMessageResult getMessage(String group, String topic, int queueId, long offset, int maxMsgNums, MessageFilter messageFilter) {
+		return getMessage(group, topic, queueId, offset, maxMsgNums, MAX_PULL_MSG_SIZE, messageFilter);
+	}
+
+	@Override
+	public CompletableFuture<GetMessageResult> getMessageAsync(String group, String topic, int queueId, long offset, int maxMsgNums, MessageFilter messageFilter) {
+		return CompletableFuture.completedFuture(getMessage(group, topic, queueId, offset, maxMsgNums, messageFilter));
+	}
+
+	@Override
+	public GetMessageResult getMessage(String group, String topic, int queueId, long offset, int maxMsgNums, int maxTotalMsgSize, MessageFilter messageFilter) {
+		if (shutdown) {
+			log.warn("message store has shutdown, so getMessage is forbidden");
+			return null;
+		}
+		if (!runningFlags.isReadable()) {
+			log.warn("message store is not readable, so getMessage is forbidden " + runningFlags.getFlagBits());
+			return null;
+		}
+
+		Optional<TopicConfig> topicConfig = getTopicConfig(topic);
+		CleanupPolicy policy = CleanupPolicyUtils.getDeletePolicy(topicConfig);
+		if (Objects.equals(policy, CleanupPolicy.COMPACTION) && messageStoreConfig.isEnableCompaction()) {
+			return compactionStore.getMessage(group, topic, queueId, offset, maxMsgNums, maxTotalMsgSize);
+		}
+
+		long begin = getSystemClock().now();
+		GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+		long nextBeginOffset = offset;
+		long minOffset = 0;
+		long maxOffset = 0;
+		GetMessageResult result = new GetMessageResult();
+		long maxOffsetPy = commitLog.getMaxOffset();
+
+		ConsumeQueueInterface consumeQueue = findConsumeQueue(topic, queueId);
+		if (consumeQueue != null) {
+			minOffset = consumeQueue.getMinOffsetInQueue();
+			maxOffset = consumeQueue.getMaxOffsetInQueue();
+
+			if (maxOffset == 0) {
+				status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+				nextBeginOffset = nextOffsetCorrection(offset, 0);
+			}
+			else if (offset < minOffset) {
+				status = GetMessageStatus.OFFSET_TOO_SMALL;
+				nextBeginOffset = nextOffsetCorrection(offset, minOffset);
+			}
+			else if (offset == maxOffset) {
+				status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
+				nextBeginOffset = nextOffsetCorrection(offset, offset);
+			}
+			else if (offset > maxOffset) {
+				status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
+				nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
+			}
+			else {
+				int maxFilterMessageSize = Math.max(messageStoreConfig.getMaxFilterMessageSize(), maxMsgNums * consumeQueue.getUnitSize());
+				boolean diskFallRecorded = messageStoreConfig.isDiskFallRecorded();
+				long maxPullSize = Math.max(maxTotalMsgSize, 100);
+				if (maxPullSize > MAX_PULL_MSG_SIZE) {
+					log.warn("The max pull size is too large maxPullSize={} topic={} queueId={}", maxPullSize, topic, queueId);
+					maxPullSize = MAX_PULL_MSG_SIZE;
+				}
+				status = GetMessageStatus.NO_MATCHED_MESSAGE;
+				long maxPhyOffsetPulling = 0;
+				int cqFileNum = 0;
+
+				while (result.getBufferTotalSize() <= 0 && nextBeginOffset < maxOffset && cqFileNum++ < messageStoreConfig.getTravelCqFileNumWhenGetMessage()) {
+					ReferredIterator<CqUnit> bufferConsumeQueue = null;
+
+					try {
+						bufferConsumeQueue = consumeQueue.iterateFrom(nextBeginOffset, maxMsgNums);
+
+						if (bufferConsumeQueue == null) {
+							status = GetMessageStatus.OFFSET_FOUND_NULL;
+							nextBeginOffset = nextOffsetCorrection(nextBeginOffset, consumeQueue.rollNextFile(consumeQueue, nextBeginOffset));
+							log.warn("consume request topic: {}, offset: {}, minOffset: {}, maxOffset: {}, but access logic queue failed. Correct nextBeginOffset to {}",
+									topic, offset, minOffset, maxOffset, nextBeginOffset);
+							break;
+						}
+
+						long nextPhyFileStartOffset = Long.MIN_VALUE;
+						while (bufferConsumeQueue.hasNext() && nextBeginOffset < maxOffset) {
+							CqUnit cqUnit = bufferConsumeQueue.next();
+							long offsetPy = cqUnit.getPos();
+							int sizePy = cqUnit.getSize();
+							boolean isInMem = estimateInMemByCommitOffset(offsetPy, maxOffsetPy);
+
+							if ((cqUnit.getQueueOffset() - offset) * consumeQueue.getUnitSize() > maxFilterMessageSize) {
+								break;
+							}
+							if (isTheBatchFull(sizePy, cqUnit.getBatchNum(), maxMsgNums, maxPullSize, result.getBufferTotalSize(), result.getMessageCount(), isInMem)) {
+								break;
+							}
+							if (result.getBufferTotalSize() >= maxPullSize) {
+								break;
+							}
+
+							maxPhyOffsetPulling = offsetPy;
+							nextBeginOffset = cqUnit.getQueueOffset() + cqUnit.getBatchNum();
+
+							if (nextPhyFileStartOffset != Long.MIN_VALUE) {
+								if (offsetPy < nextPhyFileStartOffset) {
+									continue;
+								}
+							}
+
+							if (messageFilter != null && !messageFilter.isMatchedByConsumeQueue(cqUnit.getValidTagsCodeAsLong(), cqUnit.getCqExtUnit())) {
+								if (result.getBufferTotalSize() == 0) {
+									status = GetMessageStatus.NO_MATCHED_MESSAGE;
+								}
+								continue;
+							}
+
+							SelectMappedBufferResult selectResult = commitLog.getMessage(offsetPy, sizePy);
+							if (selectResult == null) {
+								if (result.getBufferTotalSize() == 0) {
+									status = GetMessageStatus.MESSAGE_WAS_REMOVING;
+								}
+
+								nextPhyFileStartOffset = commitLog.rollNextFile(offsetPy);
+								continue;
+							}
+
+							if (messageStoreConfig.isColdDataFlowControlEnable() && !MixAll.isSysConsumerGroupForNoColdReadLimit(group) && !selectResult.isInCache()) {
+								result.setColdDataSum(result.getColdDataSum() + sizePy);
+							}
+
+							if (messageFilter != null && !messageFilter.isMatchedByCommitLog(selectResult.getByteBuffer().slice(), null)) {
+								if (result.getBufferTotalSize() == 0) {
+									status = GetMessageStatus.NO_MATCHED_MESSAGE;
+								}
+								selectResult.release();
+								continue;
+							}
+
+							storeStatService.getGetMessageTransferredMsgCount().add(cqUnit.getBatchNum());
+							result.addMessage(selectResult, cqUnit.getQueueOffset(), cqUnit.getBatchNum());
+							status = GetMessageStatus.FOUND;
+							nextPhyFileStartOffset = Long.MIN_VALUE;
+						}
+					}
+					catch (RocksDBException e) {
+						ERROR_LOG.error("getMessage Failed. cid: {}, topic: {}, queueId: {}, offset: {}, minOffset: {}, maxOffset: {}, {}",
+								group, topic, queueId, offset, minOffset, maxOffset, e.getMessage());
+					}
+					finally {
+						if (bufferConsumeQueue != null) {
+							bufferConsumeQueue.release();
+						}
+					}
+				}
+
+				if (diskFallRecorded) {
+					long fallBehind = maxOffsetPy - maxPhyOffsetPulling;
+					brokerStatsManager.recordDiskFallBehindSize(group, topic, queueId, fallBehind);
+				}
+
+				long diff = maxOffsetPy - maxPhyOffsetPulling;
+				long memory = (long) (StoreUtil.TOTAL_PHYSICAL_MEMORY_SIZE * (messageStoreConfig.getAccessMessageInMemoryMaxRatio() / 100.0));
+				result.setSuggestPullingFromSlave(diff > memory);
+			}
+		}
+		else {
+			status = GetMessageStatus.NO_MATCHED_LOGIC_QUEUE;
+			nextBeginOffset = nextOffsetCorrection(offset, 0);
+		}
+
+		if (GetMessageStatus.FOUND == status) {
+			storeStatService.getGetMessageTimesTotalFound().add(1);
+		}
+		else {
+			storeStatService.getGetMessageTimesTotalMiss().add(1);
+		}
+
+		long elaspedTime = getSystemClock().now() - begin;
+		storeStatService.setGetMessageEntireTimeMax(elaspedTime);
+
+		if (result == null) {
+			result = new GetMessageResult(0);
+		}
+
+		result.setStatus(status);
+		result.setNextBeginOffset(nextBeginOffset);
+		result.setMaxOffset(maxOffset);
+		result.setMinOffset(minOffset);
+		return result;
+	}
+
+	@Override
+	public CompletableFuture<GetMessageResult> getMessageAsync(String group, String topic, int queueId, long offset, int maxMsgNums, int maxTotalMsgSize, MessageFilter messageFilter) {
+		return CompletableFuture.completedFuture(getMessage(group, topic, queueId, offset, maxMsgNums, maxTotalMsgSize, messageFilter));
+	}
+
+	@Override
+	public long getMaxOffsetInQueue(String topic, int queueId) {
+		return getMaxOffsetInQueue(topic, queueId,  true);
+	}
+
+	@Override
+	public long getMaxOffsetInQueue(String topic, int queueId, boolean committed) {
+		if (committed) {
+			ConsumeQueueInterface consumeQueue = getConsumeQueue(topic, queueId);
+			if (consumeQueue != null) {
+				return consumeQueue.getMaxOffsetInQueue();
+			}
+		}
+		else {
+			Long offset = consumeQueueStore.getMaxOffset(topic, queueId);
+			if (offset != null) {
+				return offset;
+			}
+		}
+		return 0;
+	}
+
+	@Override
+	public long getMinOffsetInQueue(String topic, int queueId) {
+		try {
+			return consumeQueueStore.getMinOffsetInQueue(topic, queueId);
+		}
+		catch (RocksDBException e) {
+			ERROR_LOG.error("getMinOffsetInQueue Failed. topic: {}, queueId: {}", topic, queueId, e);
+			return -1;
+		}
+	}
+
+	@Override
+	public long getCommitLogOffsetInQueue(String topic, int queueId, long consumeQueueOffset) {
+		ConsumeQueueInterface consumeQueue = getConsumeQueue(topic, queueId);
+		if (consumeQueue != null) {
+			CqUnit cqUnit = consumeQueue.get(consumeQueueOffset);
+			if (cqUnit != null) {
+				return cqUnit.getPos();
+			}
+		}
+		return 0;
+	}
+
+	@Override
+	public long getOffsetInQueueByTime(String topic, int queueId, long timestamp) {
+		return getOffsetInQueueByTime(topic, queueId, timestamp, BoundaryType.LOWER);
+	}
+
+	@Override
+	public long getOffsetInQueueByTime(String topic, int queueId, long timestamp, BoundaryType boundaryType) {
+		try {
+			return consumeQueueStore.getOffsetInQueueByTime(topic, queueId, timestamp, boundaryType);
+		}
+		catch (RocksDBException e) {
+			ERROR_LOG.error("getOffsetInQueueByTime Failed. topic: {}, queueId: {}, timestamp: {} boundaryType: {}, {}",
+					topic, queueId, timestamp, boundaryType, e.getMessage());
+		}
+		return 0;
+	}
+
+	@Override
+	public MessageExt lookMessageByOffset(long commitLogOffset) {
+		SelectMappedBufferResult result = commitLog.getMessage(commitLogOffset, 4);
+		if (result != null) {
+			try {
+				int size = result.getByteBuffer().getInt();
+				return lookMessageByOffset(commitLogOffset, size);
+			}
+			finally {
+				result.release();
+			}
+		}
+		return null;
+	}
+
+	@Override
+	public SelectMappedBufferResult selectOneMessageByOffset(long commitLogOffset) {
+		SelectMappedBufferResult result = commitLog.getMessage(commitLogOffset, 4);
+		if (result != null) {
+			try {
+				int size = result.getByteBuffer().getInt();
+				return commitLog.getMessage(commitLogOffset, size);
+			}
+			finally {
+				result.release();
+			}
+		}
+		return null;
+	}
+
+	@Override
+	public SelectMappedBufferResult selectOneMessageByOffset(long commitLogOffset, long msgSize) {
+		return commitLog.getMessage(commitLogOffset, msgSize);
+	}
+
+	@Override
+	public String getRunningDataInfo() {
+		return storeStatService.toString();
+	}
+
+	public String getStorePathPhysic() {
+		String storePathPhysic;
+		if (DefaultMessageStore.this.getMessageStoreConfig().isEnableDLegerCommitLog()) {
+			storePathPhysic = ((DLedgerCommitLog)DefaultMessageStore.this.getCommitLog()).getDLegerServer().getDLedgerConfig().getDataStorePath();
+		}
+		else {
+			storePathPhysic = DefaultMessageStore.this.getMessageStoreConfig().getStorePathCommitLog();
+		}
+		return storePathPhysic;
+	}
+
+	public String getStorePathLogic() {
+		return StorePathConfigHelper.getStorePathBatchConsumeQueue(messageStoreConfig.getStorePathRootDir());
+	}
+
+	@Override
+	public HashMap<String, String> getRuntimeInfo() {
+		HashMap<String, String> info = storeStatService.getRuntimeInfo();
+
+		double minPhysicsUsedRatio = Double.MAX_VALUE;
+		String commitLogStorePath = getStorePathPhysic();
+		String[] paths = commitLogStorePath.trim().split(MixAll.MULTI_PATH_SPLITTER);
+		for (String path : paths) {
+			double physicRatio = UtilAll.isPathExists(path) ? UtilAll.getDiskPartitionSpaceUsedPercent(path) : -1;
+			info.put(RunningStats.commitLogDiskRatio.name() + "_" + path, String.valueOf(physicRatio));
+			minPhysicsUsedRatio = Math.min(minPhysicsUsedRatio, physicRatio);
+		}
+		info.put(RunningStats.commitLogDiskRatio.name(), String.valueOf(minPhysicsUsedRatio));
+
+		double logicsRatio = UtilAll.getDiskPartitionSpaceUsedPercent(getStorePathLogic());
+		info.put(RunningStats.consumeQueueDiskRatio.name(), String.valueOf(logicsRatio));
+
+		info.put(RunningStats.commitLogMinOffset.name(), String.valueOf(DefaultMessageStore.this.getMinPhyOffset()));
+		info.put(RunningStats.commitLogMaxOffset.name(), String.valueOf(DefaultMessageStore.this.getMaxPhyOffset()));
+
+		return info;
+	}
+
+	@Override
+	public long getMaxPhyOffset() {
+		return commitLog.getMaxOffset();
+	}
+
+	@Override
+	public long getMinPhyOffset() {
+		return commitLog.getMinOffset();
+	}
+
+	@Override
+	public long getLastFileFromOffset() {
+		return commitLog.getLastFileFromOffset();
+	}
+
+	@Override
+	public boolean getLastMappedFile(long startOffset) {
+		return commitLog.getLastMappedFile(startOffset);
+	}
+
+	@Override
+	public long getEarliestMessageTime(String topic, int queueId) {
+		ConsumeQueueInterface consumeQueue = getConsumeQueue(topic, queueId);
+		if (consumeQueue != null) {
+			Pair<CqUnit, Long> pair = consumeQueue.getEarliestUnitAndStoreTime();
+			return pair != null && pair.getObject2() !=null ? pair.getObject2() : -1;
+		}
+		return -1;
+	}
+
+	@Override
+	public CompletableFuture<Long> getEarliestMessageTimeAsync(String topic, int queueId) {
+		return CompletableFuture.completedFuture(getMessageStoreTimeStamp(topic, queueId));
+	}
+
+	@Override
+	public long getEarliestMessageTime() {
+		long minPhyOffset = getMinPhyOffset();
+		if (getCommitLog() instanceof DLedgerCommitLog) {
+			minPhyOffset += DledgerEntry.BODY_OFFSET;
+		}
+		int size = MessageDecoder.MESSAGE_STORE_TIMESTAMP_POSITION + 8;
+		InetAddressValidator validator = InetAddressValidator.getInstance();
+		if (validator.isValidInet6Address(brokerConfig.getBrokerIP1())) {
+			size = MessageDecoder.MESSAGE_STORE_TIMESTAMP_POSITION + 20;
+		}
+		return getCommitLog().pickupStoreTimestamp(minPhyOffset, size);
+	}
+
+	@Override
+	public long getMessageStoreTimeStamp(String topic, int queueId, long consumeQueueOffset) {
+		ConsumeQueueInterface consumeQueue = getConsumeQueue(topic, queueId);
+		if (consumeQueue != null) {
+			Pair<CqUnit, Long> pair = consumeQueue.getCqUnitAndStoreTime(consumeQueueOffset);
+			return pair != null && pair.getObject2() != null ? pair.getObject2() : -1;
+		}
+		return -1;
+	}
+
+	@Override
+	public CompletableFuture<Long> getMessageStoreTimeStampAsync(String topic, int queueId, long consumeQueueOffset) {
+		return CompletableFuture.completedFuture(getMessageStoreTimeStamp(topic, queueId, consumeQueueOffset));
+	}
+
+	@Override
+	public long getMessageTotalInQueue(String topic, int queueId) {
+		ConsumeQueueInterface consumeQueue = getConsumeQueue(topic, queueId);
+		return consumeQueue != null ? consumeQueue.getMessageTotalInQueue() : 0;
+	}
+
+	@Override
+	public SelectMappedBufferResult getCommitLogData(long offset) {
+		if (shutdown) {
+			log.warn("message store has shutdown, so getCommitLogData is forbidden");
+			return null;
+		}
+		return commitLog.getData(offset);
+	}
+
+	@Override
+	public List<SelectMappedBufferResult> getBulkCommitLogData(long offset, int size) {
+		if (shutdown) {
+			log.warn("message store has shutdown, so getBlukCommitLogData is forbidden");
+			return null;
+		}
+		return commitLog.getBulkData(offset, size);
+	}
+
+	@Override
+	public boolean appendToCommitLog(long startOffset, byte[] data, int dataStart, int dataLength) {
+		if (shutdown) {
+			log.warn("message store has shutdown, so appendToCommitLog is forbidden");
+			return false;
+		}
+
+		boolean result = commitLog.appendData(startOffset, data, dataStart, dataLength);
+		if (result) {
+			reputMessageService.wakeup();
+		}
+		else {
+			log.error("DefaultMessageStore#appendToCommitLog: failed to append data to commitLog, physical offset={}, data length={}",
+					startOffset, data.length);
+		}
+
+		return result;
+	}
+
+	@Override
+	public void executeDeleteFilesManually() {
+		cleanCommitLogService.executeDeleteFilesManually();
+	}
+
+	@Override
+	public QueryMessageResult queryMessage(String topic, String key, int maxNum, long begin, long end) {
+		QueryMessageResult result = new QueryMessageResult();
+
+		long lastQueryMsgTime =end;
+
+		for (int i = 0; i < 3; i++) {
+			QueryOffsetResult queryOffsetResult = indexService.queryOffset(topic, key, maxNum, begin, lastQueryMsgTime);
+			if (queryOffsetResult.getPhyOffsets().isEmpty()) {
+				break;
+			}
+
+			Collections.sort(queryOffsetResult.getPhyOffsets());
+
+			result.setIndexLastUpdatePhyoffset(queryOffsetResult.getIndexLastUpdatePhyoffset());
+			result.setIndexLastUpdateTimestamp(queryOffsetResult.getIndexLastUpdateTimestamp());
+
+			for (int j = 0; j < queryOffsetResult.getPhyOffsets().size(); j++) {
+				long offset = queryOffsetResult.getPhyOffsets().get(j);
+
+				try {
+					MessageExt msg = lookMessageByOffset(offset);
+					if (j == 0) {
+						lastQueryMsgTime = msg.getStoreTimestamp();
+					}
+
+					SelectMappedBufferResult mappedBufferResult = commitLog.getData(offset, false);
+					if (mappedBufferResult != null) {
+						int size = mappedBufferResult.getByteBuffer().getInt(0);
+						mappedBufferResult.getByteBuffer().limit(size);
+						mappedBufferResult.setSize(size);
+						result.addMessage(mappedBufferResult);
+					}
+				}
+				catch (Exception e) {
+					log.error("queryMessage exception", e);
+				}
+			}
+
+			if (result.getBufferTotalSize() > 0) {
+				break;
+			}
+
+			if (lastQueryMsgTime < begin) {
+				break;
+			}
+		}
+		return result;
+	}
+
+	@Override
+	public CompletableFuture<QueryMessageResult> queryMessageAsync(String topic, String key, int maxNum, long begin, long end) {
+		return CompletableFuture.completedFuture(queryMessage(topic, key, maxNum, begin, end));
+	}
+
+	@Override
+	public void updateMasterAddress(String newAddr) {
+		if (haService != null) {
+			haService.updateMasterAddress(newAddr);
+		}
+		if (compactionService != null) {
+			compactionService.updateMasterAddress(newAddr);
+		}
+	}
+
+	@Override
+	public void updateHaMasterAddress(String newAddr) {
+		if (haService != null) {
+			haService.updateHaMasterAddress(newAddr);
+		}
+	}
+
+	@Override
+	public void setAliveReplicaNumInGroup(int aliveReplicaNums) {
+		this.aliveReplicasNum = aliveReplicaNums;
+	}
+
+	@Override
+	public void wakeupHAClient() {
+		if (haService != null) {
+			haService.getHAClient().wakeup();
+		}
+	}
+
+	@Override
+	public int getAliveReplicaNumInGroup() {
+		return aliveReplicasNum;
+	}
+
+	@Override
+	public long slaveFailBehindMuch() {
+		if (haService == null || messageStoreConfig.isDuplicationEnable() || messageStoreConfig.isEnableDLegerCommitLog()) {
+			log.warn("haServer is null or duplication is enable or enableDLegerCommitLog is true");
+			return -1;
+		}
+		return commitLog.getMaxOffset - haService.getPush2SlaveMaxOffset().get();
+	}
+
+	@Override
+	public long now() {
+		return systemClock.now();
+	}
+
+	@Override
+	public int deleteTopics(Set<String> deleteTopics) {
+		if (deleteTopics == null || deleteTopics.isEmpty()) {
+			return 0;
+		}
+
+		int deleteCount = 0;
+		for (String topic : deleteTopics) {
+			ConcurrentMap<Integer, ConsumeQueueInterface> queueTable = consumeQueueStore.findConsumeQueueMap(topic);
+			if (queueTable == null || queueTable.isEmpty()) {
+				continue;
+			}
+
+			for (ConsumeQueueInterface cq : queueTable.values()) {
+				try {
+					consumeQueueStore.destroy(cq);
+				}
+				catch (RocksDBException e) {
+					log.error("DeleteTopic: ConsumeQueue cleans error! topic={}, queueId={}", cq.getTopic(), cq.getQueueId());
+				}
+				log.info("DeleteTopic: ConsumeQueue has been cleaned, topic={}, queueId={}", cq.getTopic(), cq.getQueueId());
+				consumeQueueStore.removeTopicQueueTable(cq.getTopic(), cq.getQueueId());
+			}
+
+			consumeQueueStore.getConsumeQueueTable().remove(topic);
+
+			if (brokerConfig.isAutoDeleteUnusedStats()) {
+				brokerStatsManager.onTopicDeleted(topic);
+			}
+
+			String consumeQueueDir = StorePathConfigHelper.getStorePathConsumeQueue(messageStoreConfig.getStorePathRootDir()) + File.separator + topic;
+			String consumeQueueExtDir = StorePathConfigHelper.getStorePathConsumeQueueExt(messageStoreConfig.getStorePathRootDir()) + File.separator + topic;
+			String batchConsumeQueueDir = StorePathConfigHelper.getStorePathBatchConsumeQueue(messageStoreConfig.getStorePathRootDir()) + File.separator + topic;
+
+			UtilAll.deleteEmptyDirectory(new File(consumeQueueDir));
+			UtilAll.deleteEmptyDirectory(new File(consumeQueueExtDir));
+			UtilAll.deleteEmptyDirectory(new File(batchConsumeQueueDir));
+
+			log.info("DeleteTopic: Topic has been destroyed, topic={}", topic);
+			deleteCount++;
+		}
+
+		return deleteCount;
+	}
+
+	@Override
+	public int cleanUnusedTopic(Set<String> retainTopics) {
+		Set<String> consumeQueueTopicSet = getConsumeQueueTable().keySet();
+		int deleteCount = 0;
+		for (String topic : Sets.difference(consumeQueueTopicSet, retainTopics)) {
+			if (retainTopics.contains(topic) || TopicValidator.isSystemTopic(topic) || MixAll.isLmq(topic)) {
+				continue;
+			}
+			deleteCount += deleteTopics(Sets.newHashSet(topic));
+		}
+		return deleteCount;
+	}
+
+	@Override
+	public void cleanExpiredConsumeQueue() {
+		long minCommitLogOffset = commitLog.getMinOffset();
+		consumeQueueStore.cleanExpired(minCommitLogOffset);
+	}
+
+	public MappedFile<String, Long> getMessageIds(String topic, int queueId, long minOffset, long maxOffset, SocketAddress storeHost) {
+		Map<String, Long> messageIds = new HashMap<>();
+		if (shutdown) {
+			return messageIds;
+		}
+
+		ConsumeQueueInterface consumeQueue = findConsumeQueue(topic, queueId);
+		if (consumeQueue != null) {
+			minOffset = Math.max(minOfset, consumeQueue.getMinOffsetInQueue());
+			maxOffset = Math.min(maxOffset, consumeQueue.getMaxOffsetInQueue());
+
+			if (maxOffset == 0) {
+				return messageIds;
+			}
+
+			long nextOffset = minOffset;
+			while(nextOffset < maxOffset) {
+				ReferredIterator<CqUnit> bufferConsumeQueue = consumeQueue.iterateFrom(nextOffset);
+				try {
+					if (bufferConsumeQueue != null && bufferConsumeQueue.hasNext()) {
+						while (bufferConsumeQueue.hasNext()) {
+							CqUnit cqUnit = bufferConsumeQueue.next();
+							long offsetPy = cqUnit.getPos();
+							InetSocketAddress inetSocketAddress = (InetSocketAddress) storeHost;
+							int msgIdLength = (inetSocketAddress.getAddress() instanceof Inet6Address) ? 16 + 4 + 8 : 4 + 4 + 8;
+							ByteBuffer msgIdMemory = ByteBuffer.allocate(msgIdLength);
+							String msgId = MessageDecoder.createMessageId(msgIdMemory, MessageExt.socketAddress2ByteBuffer(storeHost), offsetPy);
+							messageIds.put(msgId, cqUnit.getQueueOffset());
+							nextOffset = cqUnit.getQueueOffset() + cqUnit.getBatchNum();
+							if (nextOffset >= maxOffset) {
+								return messageIds;
+							}
+						}
+					}
+					else {
+						return messageIds;
+					}
+				}
+				finally {
+					if (bufferConsumeQueue != null) {
+						bufferConsumeQueue.release();
+					}
+				}
+			}
+		}
+		return messageIds;
 	}
 
 	@Override
