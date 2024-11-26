@@ -23,6 +23,7 @@
         <module>filter</module>
         <module>srvutil</module>
         <module>store</module>
+        <module>controller</module>
     </modules>
 
     <properties>

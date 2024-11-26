@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.mawen</groupId>
+        <artifactId>learn-rocketmq</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>rocketmq-controller</artifactId>
+    <name>rocketmq-controller ${project.version}</name>
+
+    <properties>
+        <project.root>${basedir}/..</project.root>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.openmessaging.storage</groupId>
+            <artifactId>dledger</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.rocketmq</groupId>
+                    <artifactId>rocketmq-remoting</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.aliyunmq</groupId>
+            <artifactId>rocketmq-shaded-slf4j-api-bridge</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>rocketmq-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>rocketmq-srvutil</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>jul-to-slf4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.alipay.sofa</groupId>
+            <artifactId>jraft-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java-util</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>
