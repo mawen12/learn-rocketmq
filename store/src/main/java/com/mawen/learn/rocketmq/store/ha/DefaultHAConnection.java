@@ -318,7 +318,7 @@ public class DefaultHAConnection implements HAConnection {
 					}
 
 					if (lastWriteOver) {
-						long interval = haService.getDefaultMessageStore().getSystemClock().now - lastWriteTimestamp;
+						long interval = haService.getDefaultMessageStore().getSystemClock().now() - lastWriteTimestamp;
 						if (interval > haService.getDefaultMessageStore().getMessageStoreConfig().getHaSendHeartbeatInterval()) {
 							bufferHeader.position(0);
 							bufferHeader.limit(TRANSFER_HEADER_SIZE);
@@ -351,7 +351,7 @@ public class DefaultHAConnection implements HAConnection {
 							if (System.currentTimeMillis() - lastPrintTimestamp > 1000) {
 								log.warn("Trigger HA flow control, max transfer speed {}KB/s, current speed: {}KB/s",
 										String.format("%.2f", flowMonitor.maxTransferByteInSecond() / 1024.0),
-										String.format("%.2f", flowMonitor.getTransferByteInSecond() / 1024.0));
+										String.format("%.2f", flowMonitor.getTransferredByteInSecond() / 1024.0));
 								lastPrintTimestamp = System.currentTimeMillis();
 							}
 							size = canTransferMaxBytes;

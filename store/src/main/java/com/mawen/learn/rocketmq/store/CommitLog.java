@@ -1,11 +1,18 @@
 package com.mawen.learn.rocketmq.store;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import com.mawen.learn.rocketmq.common.ServiceThread;
+import com.mawen.learn.rocketmq.common.SystemClock;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.message.MessageConst;
 import com.mawen.learn.rocketmq.common.message.MessageExt;
@@ -31,7 +38,26 @@ public class CommitLog implements Swappable {
 	protected final DefaultMessageStore defaultMessageStore;
 
 	private final FlushManager flushManager;
+	private final ColdDataCheckService coldDataCheckService;
 
+	private final AppendMessageCallback appendMessageCallback;
+	private final ThreadLocal<PutMessageThreadLocal> putMessageThreadLocal;
+
+	protected volatile long confirmOffset = -1L;
+
+	private volatile long beginTimeInLock = 0;
+
+	protected final PutMessageLock putMessageLock;
+
+	protected final TopicQueueLock topicQueueLock;
+
+	private volatile Set<String> fullStorePaths = Collections.emptySet();
+
+	private final FlushDiskWatcher flushDiskWatcher;
+
+	protected int commitLogSize;
+
+	private final boolean enabledAppendPropCRC;
 
 	abstract class FlushCommitLogService extends ServiceThread {
 		protected static final int RETRY_TIMES_OVER = 10;
@@ -469,7 +495,37 @@ public class CommitLog implements Swappable {
 
 		@Override
 		public void handleDiskFlush(AppendMessageResult result, PutMessageResult putMessageResult, MessageExt messageExt) {
-
+			if (FlushDiskType.SYNC_FLUSH == CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
+				final GroupCommitService service = (GroupCommitService) flushCommitLogService;
+				if (messageExt.isWaitStoreMsgOK()) {
+					GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes(), CommitLog.this.defaultMessageStore.getMessageStoreConfig().getSyncFlushTimeout());
+					service.putRequest(request);
+					CompletableFuture<PutMessageStatus> flushOKFuture = request.future();
+					PutMessageStatus flushStatus = null;
+					try {
+						flushStatus = flushOKFuture.get(CommitLog.this.defaultMessageStore.getMessageStoreConfig().getSyncFlushTimeout(), TimeUnit.MILLISECONDS);
+					}
+					catch (InterruptedException | ExecutionException | TimeoutException e) {
+						// flushOK = false;
+					}
+					if (flushStatus != PutMessageStatus.PUT_OK) {
+						log.error("do groupcommit, wait for flush failed, topic: {}, tag: {} client address: {}",
+								messageExt.getTopic(), messageExt.getTags(), messageExt.getBornHostString());
+						putMessageResult.setPutMessageStatus(PutMessageStatus.FLUSH_DISK_TIMEOUT);
+					}
+				}
+				else {
+					service.wakeup();
+				}
+			}
+			else {
+				if (!CommitLog.this.defaultMessageStore.isTransientStorePoolEnable()) {
+					flushCommitLogService.wakeup();
+				}
+				else {
+					commitRealTimeService.wakeup();
+				}
+			}
 		}
 
 		@Override
@@ -478,7 +534,7 @@ public class CommitLog implements Swappable {
 				GroupCommitService service = (GroupCommitService) flushCommitLogService;
 				if (messageExt.isWaitStoreMsgOK()) {
 					GroupCommitRequest req = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes(), defaultMessageStore.getMessageStoreConfig().getSyncFlushTimeout());
-					FlushDiskWatcher.add(req);
+					flushDiskWatcher.add(req);
 					service.putRequest(req);
 					return req.future();
 				}
@@ -488,6 +544,25 @@ public class CommitLog implements Swappable {
 				}
 			}
 			return null;
+		}
+	}
+
+	public class ColdDataCheckService extends ServiceThread {
+		private final SystemClock systemClock = new SystemClock();
+		private final ConcurrentHashMap<String, byte[]> pageCacheMap = new ConcurrentHashMap<>();
+		private int pageSize = -1;
+		private int sampleSteps = 32;
+
+
+
+		@Override
+		public String getServiceName() {
+			return "";
+		}
+
+		@Override
+		public void run() {
+
 		}
 	}
 }
