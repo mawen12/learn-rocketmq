@@ -13,7 +13,7 @@ import lombok.ToString;
 @Setter
 @ToString
 @AllArgsConstructor
-public class UpdateBrokerDataEvent implements EventMessage {
+public class UpdateBrokerAddresssEvent implements EventMessage {
 
 	private String clusterName;
 

@@ -13,12 +13,12 @@ import lombok.ToString;
 @AllArgsConstructor
 public class ElectMasterEvent implements EventMessage{
 
-	private final boolean newMasterElectId;
+	private final boolean newMasterElected;
 	private final String brokerName;
 	private final Long newMasterBrokerId;
 
-	public ElectMasterEvent(boolean newMasterElectId, String brokerName) {
-		this(newMasterElectId, brokerName, null);
+	public ElectMasterEvent(boolean newMasterElected, String brokerName) {
+		this(newMasterElected, brokerName, null);
 	}
 
 	public ElectMasterEvent(String brokerName, Long newMasterBrokerId) {
@@ -29,5 +29,4 @@ public class ElectMasterEvent implements EventMessage{
 	public EventType getEventType() {
 		return EventType.ELECT_MASTER_EVENT;
 	}
-
 }

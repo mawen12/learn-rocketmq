@@ -16,7 +16,7 @@ public class BrokerMemberGroup extends RemotingSerializable {
 
 	private String brokerName;
 
-	private Map<String, String> brokerAddrs;
+	private Map<Long, String> brokerAddrs;
 
 	public BrokerMemberGroup() {
 		this.brokerAddrs = new HashMap<>();
@@ -44,11 +44,11 @@ public class BrokerMemberGroup extends RemotingSerializable {
 		this.brokerName = brokerName;
 	}
 
-	public Map<String, String> getBrokerAddrs() {
+	public Map<Long, String> getBrokerAddrs() {
 		return brokerAddrs;
 	}
 
-	public void setBrokerAddrs(Map<String, String> brokerAddrs) {
+	public void setBrokerAddrs(Map<Long, String> brokerAddrs) {
 		this.brokerAddrs = brokerAddrs;
 	}
 
