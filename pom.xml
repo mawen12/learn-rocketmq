@@ -24,6 +24,7 @@
         <module>srvutil</module>
         <module>store</module>
         <module>controller</module>
+        <module>acl</module>
     </modules>
 
     <properties>

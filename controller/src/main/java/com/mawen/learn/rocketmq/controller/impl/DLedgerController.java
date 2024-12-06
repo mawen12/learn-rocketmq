@@ -6,7 +6,10 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 import com.mawen.learn.rocketmq.common.ControllerConfig;
@@ -15,15 +18,26 @@ import com.mawen.learn.rocketmq.common.ThreadFactoryImpl;
 import com.mawen.learn.rocketmq.common.constant.LoggerName;
 import com.mawen.learn.rocketmq.common.utils.ThreadUtils;
 import com.mawen.learn.rocketmq.controller.Controller;
+import com.mawen.learn.rocketmq.controller.elect.ElectPolicy;
+import com.mawen.learn.rocketmq.controller.elect.impl.DefaultElectPolicy;
+import com.mawen.learn.rocketmq.controller.helper.BrokerLifecycleListener;
+import com.mawen.learn.rocketmq.controller.helper.BrokerValidPredicate;
 import com.mawen.learn.rocketmq.controller.impl.event.ControllerResult;
 import com.mawen.learn.rocketmq.controller.impl.event.EventMessage;
+import com.mawen.learn.rocketmq.controller.impl.event.EventSerializer;
+import com.mawen.learn.rocketmq.controller.impl.manager.RaftReplicasInfoManager;
 import com.mawen.learn.rocketmq.controller.impl.manager.ReplicasInfoManager;
+import com.mawen.learn.rocketmq.controller.metrics.ControllerMetricsManager;
+import com.mawen.learn.rocketmq.remoting.ChannelEventListener;
 import com.mawen.learn.rocketmq.remoting.CommandCustomHeader;
+import com.mawen.learn.rocketmq.remoting.netty.NettyClientConfig;
+import com.mawen.learn.rocketmq.remoting.netty.NettyServerConfig;
 import com.mawen.learn.rocketmq.remoting.protocol.RemotingCommand;
 import com.mawen.learn.rocketmq.remoting.protocol.ResponseCode;
 import io.openmessaging.storage.dledger.DLedgerConfig;
 import io.openmessaging.storage.dledger.DLedgerLeaderElector;
 import io.openmessaging.storage.dledger.DLedgerServer;
+import io.openmessaging.storage.dledger.MemberState;
 import io.openmessaging.storage.dledger.protocol.AppendEntryRequest;
 import io.openmessaging.storage.dledger.protocol.BatchAppendEntryRequest;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
@@ -43,7 +57,53 @@ public class DLedgerController implements Controller {
 	private final DLedgerConfig dLedgerConfig;
 	private final ReplicasInfoManager replicasInfoManager;
 	private final EventScheduler scheduler;
+	private final EventSerializer eventSerializer;
+	private final RoleChangeHandler roleHandler;
+	private final DLedgerControllerStateMachine stateMachine;
+	private final ScheduledExecutorService scanInactiveMasterService;
 
+	private ScheduledFuture scanInactiveMasterFuture;
+
+	private final List<BrokerLifecycleListener> brokerLifecycleListeners;
+
+	private BrokerValidPredicate brokerValidPredicate;
+
+	private ElectPolicy electPolicy;
+
+	private final AtomicBoolean isScheduling = new AtomicBoolean(false);
+
+	public DLedgerController(final ControllerConfig config, final BrokerValidPredicate brokerValidPredicate) {
+		this(config, brokerValidPredicate, null, null, null, null);
+	}
+
+	public DLedgerController(final ControllerConfig config, final BrokerValidPredicate brokerValidPredicate, final NettyServerConfig nettyServerConfig,
+	                         final NettyClientConfig nettyClientConfig, final ChannelEventListener channelEventListener, final ElectPolicy electPolicy) {
+		this.controllerConfig = config;
+		this.eventSerializer = new EventSerializer();
+		this.scheduler = new EventScheduler();
+		this.brokerValidPredicate = brokerValidPredicate;
+		this.electPolicy = electPolicy == null ? new DefaultElectPolicy() : electPolicy;
+		this.dLedgerConfig = new DLedgerConfig();
+		this.dLedgerConfig.setGroup(config.getControllerDLegerGroup());
+		this.dLedgerConfig.setPeers(config.getControllerDLegerPeers());
+		this.dLedgerConfig.setSelfId(config.getControllerDLegerSelfId());
+		this.dLedgerConfig.setStoreBaseDir(config.getControllerStorePath());
+		this.dLedgerConfig.setMappedFileSizeForEntryData(config.getMappedFileSize());
+
+		this.roleHandler = new RoleChangeHandler(dLedgerConfig.getSelfId());
+		this.replicasInfoManager = new RaftReplicasInfoManager(controllerConfig);
+		this.stateMachine = new DLedgerControllerStateMachine(replicasInfoManager, eventSerializer, dLedgerConfig.getGroup(), dLedgerConfig.getSelfId());
+
+//		this.dLedgerServer = new DLedgerServer(dLedgerConfig, nettyServerConfig, nettyClientConfig, channelEventListener);
+
+	}
+
+
+	private void cancelScanInactiveFuture() {
+		if (scanInactiveMasterFuture != null) {
+
+		}
+	}
 
 	interface EventHandler<T> {
 		void run() throws Throwable;
@@ -192,6 +252,86 @@ public class DLedgerController implements Controller {
 	class RoleChangeHandler implements DLedgerLeaderElector.RoleChangeHandler {
 		private final String selfId;
 		private final ExecutorService executorService = ThreadUtils.newSingleThreadExecutor(new ThreadFactoryImpl("DLedgerControllerRoleChangeHandler_"));
+		private volatile MemberState.Role currentRole = MemberState.Role.FOLLOWER;
 
+		public RoleChangeHandler(final String selfId) {
+			this.selfId = selfId;
+		}
+
+		@Override
+		public void handle(long term, MemberState.Role role) {
+			Runnable runnable = () -> {
+				switch (role) {
+					case CANDIDATE:
+						ControllerMetricsManager.recordRole(role, currentRole);
+						currentRole = MemberState.Role.CANDIDATE;
+						log.info("Controller {} change role to candidate", selfId);
+						DLedgerController.this.stopScheduling();
+						DLedgerController.this.cancelScanInactiveFuture();
+						break;
+					case FOLLOWER:
+						ControllerMetricsManager.recordRole(role, currentRole);
+						currentRole = MemberState.Role.FOLLOWER;
+						log.info("Controller {} change role to Follower, leaderId:{}", selfId, getMemberState().getLeaderId());
+						DLedgerController.this.stopScheduling();
+						DLedgerController.this.cancelScanInactiveFuture();
+						break;
+					case LEADER: {
+						log.info("Controller {] change role to leader, try process a initial proposal", selfId);
+						int tryTimes = 0;
+						while (true) {
+							AppendEntryRequest request = new AppendEntryRequest();
+							request.setBody(new byte[0]);
+							try {
+								if (appendToDLedgerAndWait(request)) {
+									ControllerMetricsManager.recordRole(role, currentRole);
+									currentRole = MemberState.Role.LEADER;
+									DLedgerController.this.startScheduling();
+									if (DLedgerController.this.scanInactiveMasterFuture == null) {
+										long scanInactiveMasterInterval = DLedgerController.this.controllerConfig.getScanInactiveMasterInterval();
+										DLedgerController.this.scanInactiveMasterFuture = DLedgerController.this.scanInactiveMasterService.scheduleAtFixedRate(
+												DLedgerController.this::scanInactiveMasterAndTriggerReelect, scanInactiveMasterInterval, scanInactiveMasterInterval, TimeUnit.MILLISECONDS);
+									}
+									break;
+								}
+							}
+							catch (Throwable e) {
+								log.error("Error happen when controller leader append initial request to DLedger", e);
+							}
+
+							if (!DLedgerController.this.getMemberState().isLeader()) {
+								log.error("Append a initial log failed because current state is not leader");
+								break;
+							}
+
+							tryTimes++;
+							log.error("Controller leader append initial log failed, try {} times", tryTimes);
+							if (tryTimes % 3 == 0) {
+								log.warn("Controller leader append initial log failed too many times, please wait a while");
+							}
+						}
+						break;
+					}
+				}
+			};
+			this.executorService.submit(runnable);
+		}
+
+		@Override
+		public void startup() {
+			// NOP
+		}
+
+		@Override
+		public void shutdown() {
+			if (currentRole == MemberState.Role.LEADER) {
+				DLedgerController.this.stopScheduling();
+			}
+			executorService.shutdown();
+		}
+
+		public boolean isLeaderState() {
+			return currentRole == MemberState.Role.LEADER;
+		}
 	}
 }
